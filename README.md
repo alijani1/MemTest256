@@ -2,7 +2,7 @@
 
 Enhanced memory testing utility for MiSTer FPGA with dual SDRAM slot support, real-time text UI, and automated per-slot frequency characterization.
 
-Inspired by [MiSTer-devel/MemTest_MiSTer](https://github.com/MiSTer-devel/MemTest_MiSTer).
+Built on [MiSTer-devel/MemTest_MiSTer](https://github.com/MiSTer-devel/MemTest_MiSTer) by Sorgelig.
 
 ## Features
 
@@ -206,9 +206,9 @@ The Cyclone V PLL supports phase shifting with 156-417 picosecond resolution. By
 
 ## Credits
 
-- Original MemTest by [Sorgelig](https://github.com/MiSTer-devel/MemTest_MiSTer)
-- Dual SDRAM support, text UI, and transaction state machine by Ali Jani
-- MiSTer FPGA framework by the MiSTer community
+- Based on [MemTest_MiSTer](https://github.com/MiSTer-devel/MemTest_MiSTer) by [Sorgelig](https://github.com/Sorgelig) — SDRAM controller (`rtl/sdram.v`), test engine (`rtl/tester.v`), random pattern generator (`rtl/rnd_vec_gen.v`), and PLL configuration originate from the original project
+- Dual SDRAM support, text UI, transaction state machine, frequency history, and watchdog system by Ali Jani
+- MiSTer FPGA framework (`sys/`) by the MiSTer community
 
 ## License
 
