@@ -98,7 +98,7 @@ On startup, the tester finds each slot's maximum stable frequency using a two-ph
 
 **Phase 1 — Coarse (10MHz steps up):** 120 → 130 → 140 → 150 → 160 → 167. Each pass steps to the next decade. The first failure identifies the band.
 
-**Phase 2 — Fine (1MHz steps up):** Steps back to the previous decade boundary and walks up 1MHz at a time until the exact ceiling is found.
+**Phase 2 — Fine (1MHz steps up):** Steps back one position from the failure point and walks up 1MHz at a time until the exact ceiling is found.
 
 Once the ceiling is found, the tester locks in at the highest passing frequency and accumulates passes indefinitely. History is only recorded after the search phase completes.
 
