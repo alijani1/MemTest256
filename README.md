@@ -98,9 +98,7 @@ On startup, the tester finds each slot's maximum stable frequency using a two-ph
 
 **Phase 1 — Coarse (10MHz steps up):** 120 → 130 → 140 → 150 → 160 → 167. Each pass steps to the next decade. The first failure identifies the band.
 
-**Phase 2 — Fine (1MHz steps up):** Drops back one step from the coarse failure, then continues stepping up 1MHz at a time to find the exact ceiling.
-
-Once the ceiling is found, the tester locks in at the highest passing frequency and accumulates passes indefinitely. History is only recorded after the search phase completes.
+**Phase 2 — Fine (1MHz steps down):** On first failure, drops one step and switches to normal downward auto-stepping (1MHz at a time) until a stable passing frequency is found. The tester then locks in and accumulates passes indefinitely.
 
 ### Test Cycle
 Each test writes a pseudo-random LFSR pattern across the entire SDRAM address space, then reads it back comparing every 16-bit word. Any mismatch is a failure. One complete write/read cycle takes approximately 2 seconds at 150MHz.

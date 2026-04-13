@@ -833,36 +833,18 @@ always @(posedge CLK_50M) begin
 			slot_failcount[active_slot] <= slot_failcount[active_slot] + txn_failcount;
 			slot_total_fail[active_slot] <= slot_total_fail[active_slot] + 1'd1;
 			if(test_mode == 0) begin
-				// Auto mode: fail during search
-				if(slot_coarse[active_slot] && slot_search_up[active_slot]) begin
-					// Coarse fail: go back to previous decade+1, switch to fine
-					slot_coarse[active_slot] <= 0;
-					if(slot_pos[active_slot] < 63)
-						slot_pos[active_slot] <= slot_pos[active_slot] + 1'd1;
+				// Auto mode: any fail during search ends search, switch to downward stepping
+				slot_search_up[active_slot] <= 0; slot_coarse[active_slot] <= 0;
+				if(slot_auto[active_slot] && slot_pos[active_slot] < 63) begin
+					slot_pos[active_slot] <= slot_pos[active_slot] + 1'd1;
 					slot_time_d[active_slot] <= 0; slot_time_h[active_slot] <= 0; slot_time_m[active_slot] <= 0; slot_time_s[active_slot] <= 0;
-				end else begin
-					// Fine fail or not searching: drop frequency, done searching
-					slot_search_up[active_slot] <= 0; slot_coarse[active_slot] <= 0;
-					if(slot_auto[active_slot] && slot_pos[active_slot] < 63) begin
-						slot_pos[active_slot] <= slot_pos[active_slot] + 1'd1;
-						slot_time_d[active_slot] <= 0; slot_time_h[active_slot] <= 0; slot_time_m[active_slot] <= 0; slot_time_s[active_slot] <= 0;
-					end
 				end
 			end else begin
-				// Single slot mode: fail during search
-				if(coarse && search_up) begin
-					// Coarse fail: go back to previous decade+1, switch to fine
-					coarse <= 0;
-					if(pos < 63)
-						pos <= pos + 1'd1;
+				// Single slot mode: any fail during search ends search, switch to downward stepping
+				search_up <= 0; coarse <= 0;
+				if(auto && pos < 63) begin
+					pos <= pos + 1'd1;
 					slot_time_d[active_slot] <= 0; slot_time_h[active_slot] <= 0; slot_time_m[active_slot] <= 0; slot_time_s[active_slot] <= 0;
-				end else begin
-					// Fine fail or not searching: drop frequency, done searching
-					search_up <= 0; coarse <= 0;
-					if(auto && pos < 63) begin
-						pos <= pos + 1'd1;
-						slot_time_d[active_slot] <= 0; slot_time_h[active_slot] <= 0; slot_time_m[active_slot] <= 0; slot_time_s[active_slot] <= 0;
-					end
 				end
 			end
 		end else begin
