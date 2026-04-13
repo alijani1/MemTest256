@@ -16,6 +16,8 @@ Built on [MiSTer-devel/MemTest_MiSTer](https://github.com/MiSTer-devel/MemTest_M
 - **Chip select** — test Both chips, Chip 1 only, or Chip 2 only — cycle with C key
 - **Frequency history** — per-slot history showing up to 6 tested frequencies with pass counts and total fails
 - **Robust error handling** — dual watchdog system with retry escalation, per-slot error tracking
+- **Two-phase frequency search** — coarse 10MHz steps up from 120MHz to find the band, then fine 1MHz steps to find the exact ceiling. Users see passes from the start.
+- **1MHz frequency resolution** — full 1MHz steps from 60MHz to 167MHz for precise characterization
 - **SDRAM2 auto-detection** — probes at 100MHz on boot for reliable hardware detection
 
 ## Display
@@ -89,7 +91,16 @@ Built on [MiSTer-devel/MemTest_MiSTer](https://github.com/MiSTer-devel/MemTest_M
 2. Probes Slot 2 at 100MHz — real RAM passes easily, empty slot fails instantly
 3. If 256MB detected: enters Both Slots mode automatically
 4. If 128MB only: enters Slot 1 mode
-5. Testing begins from 167MHz, stepping down on failures
+5. Testing begins with a two-phase frequency search starting at 120MHz
+
+### Frequency Search
+On startup, the tester finds each slot's maximum stable frequency using a two-phase approach:
+
+**Phase 1 — Coarse (10MHz steps up):** 120 → 130 → 140 → 150 → 160 → 167. Each pass steps to the next decade. The first failure identifies the band.
+
+**Phase 2 — Fine (1MHz steps up):** Steps back to the previous decade boundary and walks up 1MHz at a time until the exact ceiling is found.
+
+Once the ceiling is found, the tester locks in at the highest passing frequency and accumulates passes indefinitely. History is only recorded after the search phase completes.
 
 ### Test Cycle
 Each test writes a pseudo-random LFSR pattern across the entire SDRAM address space, then reads it back comparing every 16-bit word. Any mismatch is a failure. One complete write/read cycle takes approximately 2 seconds at 150MHz.
@@ -102,7 +113,7 @@ Alternates testing between slots, characterizing both modules simultaneously. De
 3. Each slot independently steps down frequency on failure
 4. Both slots converge to their maximum stable frequency
 5. Pass counts accumulate; frequency and counts reset on failure
-6. PLL reconfigures on every slot switch with 10ms settling delay
+6. PLL reconfigures on every slot switch with 50ms settling delay
 
 ### Single Slot Mode
 - Tests only the selected slot continuously
@@ -128,8 +139,8 @@ START → WAIT_RECFG → WAIT_RESET_HI → WAIT_RESET_LO → SETTLE → WAIT_TES
 ### Error Recovery
 Two independent watchdog systems protect against hangs:
 
-**State Machine Watchdog** (5.4 second timeout)
-- Fires if any wait state takes too long
+**State Machine Watchdog** (10.7 second timeout)
+- Fires if PLL reconfiguration or SDRAM reset takes too long
 - Retries same slot at same frequency
 - After 5 consecutive timeouts: treats as failure, drops frequency
 
@@ -183,14 +194,12 @@ cp rtl/vpll.17.qip rtl/vpll.25.qip
 - **Per-slot independent state** — frequency, pass count, fail count, timer all independent per slot
 - **Cross-clock synchronization** — reset signal synchronized via 2-stage flip-flop, settling delay after PLL reconfig
 - **Dual watchdog** — state machine + progress watchdogs with retry escalation and self-healing
-- **Post-PLL settling delay** — 50ms single-slot, 10ms auto mode for SDRAM stability after frequency change
+- **Post-PLL settling delay** — 50ms for SDRAM stability after every frequency change
+- **Two-phase frequency search** — coarse 10MHz steps up to find the band, then fine 1MHz steps to find exact ceiling
 
 ## Future Enhancements (v2 Architecture)
 
 A next-generation architecture is being designed to address the limitations of the current alternating-slot approach. Key improvements planned:
-
-### Two-Phase Frequency Search
-Instead of the current linear sweep from 167MHz downward, a binary search approach would find the threshold frequency in 7-9 steps instead of 64. Phase 1 uses coarse 10MHz steps (only changing PLL multiplier M), Phase 2 refines to 1-2MHz resolution within the identified band. This dramatically reduces PLL cycling and finds the threshold faster.
 
 ### Sequential Slot Testing
 Rather than alternating between slots every pass, the v2 architecture would fully characterize Slot 1 first (find its threshold, then deep validate), then move to Slot 2. This eliminates PLL cycling overhead between slot switches for faster convergence.

@@ -200,6 +200,8 @@ reg  [5:0]  slot_pos[2];        // frequency position per slot
 reg  [31:0] slot_passcount[2];  // stored passcount per slot
 reg  [31:0] slot_failcount[2];  // stored failcount per slot
 reg         slot_auto[2];       // auto-stepping enabled per slot
+reg         slot_search_up[2]; // per-slot: searching upward for ceiling
+reg         slot_coarse[2];   // per-slot: coarse phase (10MHz steps)
 
 // P key: toggle which slot's data is displayed (auto mode only)
 reg         view_slot = 0;      // 0=viewing slot1, 1=viewing slot2
@@ -286,78 +288,101 @@ reg recfg = 0;
 reg pll_reset = 0;
 
 wire [31:0] cfg_param[256] =
-'{ //      M         K          C
-	'h167, 'h00808, 'hB33332DD, 'h20302,
-	'h160, 'h00808, 'h00000001, 'h20302,
-	'h150, 'h20807, 'h00000001, 'h20302,
-	'h149, 'h00404, 'hF0A3D6B4, 'h20201,
-	'h148, 'h00404, 'hE147ADBF, 'h20201,
-	'h147, 'h00404, 'hD1EB851F, 'h20201,
-	'h146, 'h00404, 'hC28F5C29, 'h20201,
-	'h145, 'h00404, 'hB33332DD, 'h20201,
-	'h144, 'h00404, 'hA3D709E8, 'h20201,
-	'h143, 'h00404, 'h947AE148, 'h20201,
-	'h142, 'h00404, 'h851EB852, 'h20201,
-	'h141, 'h00404, 'h75C28F06, 'h20201,
-	'h140, 'h00707, 'h00000001, 'h20302,
-	'h139, 'h00404, 'h570A3D71, 'h20201,
-	'h138, 'h00404, 'h47AE147B, 'h20201,
-	'h137, 'h00404, 'h3851EA2E, 'h20201,
-	'h136, 'h00404, 'h28F5C239, 'h20201,
-	'h135, 'h00404, 'h1999999A, 'h20201,
-	'h134, 'h00505, 'hB851EB2F, 'h00202,
-	'h133, 'h00505, 'hA3D709E8, 'h00202,
-	'h132, 'h00505, 'h8F5C28F6, 'h00202,
-	'h131, 'h00505, 'h7AE14758, 'h00202,
-	'h130, 'h00505, 'h66666611, 'h00202,
-	'h129, 'h00505, 'h51EB851F, 'h00202,
-	'h128, 'h00505, 'h3D70A381, 'h00202,
-	'h127, 'h00505, 'h28F5C239, 'h00202,
-	'h126, 'h00505, 'h147AE148, 'h00202,
-	'h125, 'h00505, 'h00000001, 'h00202,
-	'h124, 'h20504, 'hEB851E62, 'h00202,
-	'h123, 'h20504, 'hD70A3D71, 'h00202,
-	'h122, 'h20504, 'hC28F5C29, 'h00202,
-	'h121, 'h20504, 'hAE147A8B, 'h00202,
-	'h120, 'h00707, 'h66666611, 'h00303,
-	'h110, 'h20706, 'h333332DD, 'h00303,
-	'h100, 'h00404, 'h00000001, 'h00202,
-	 'h90, 'h00707, 'h66666666, 'h00404,
-	 'h80, 'h00707, 'h66666666, 'h20504,
-	 'h70, 'h00707, 'h00000001, 'h00505,
-	 'h69, 'h00404, 'h47AE147B, 'h00303,
-	 'h68, 'h00404, 'h28F5C28F, 'h00303,
-	 'h67, 'h00505, 'hB851EB85, 'h00404,
-	 'h66, 'h00505, 'h8F5C28F6, 'h00404,
-	 'h65, 'h20706, 'h00000001, 'h00505,
-	 'h64, 'h00606, 'hCCCCCCCD, 'h00505,
-	 'h63, 'h00606, 'h9999999A, 'h00505,
-	'h625, 'h00404, 'hC0000000, 'h20403,
-	 'h62, 'h00606, 'h66666666, 'h00505,
-	 'h61, 'h00606, 'h33333333, 'h00505,
-	 'h60, 'h00404, 'h66666611, 'h20403,
-	 'h59, 'h00404, 'h428F5C29, 'h20403,
-	 'h58, 'h00404, 'h1EB851EC, 'h20403,
-	 'h57, 'h20504, 'h1EB851EC, 'h00404,
-	 'h56, 'h00505, 'h147AE148, 'h20504,
-	 'h55, 'h00404, 'hCCCCCCCD, 'h00404,
-	 'h54, 'h00404, 'hA3D709E8, 'h00404,
-	 'h53, 'h00404, 'h7AE14758, 'h00404,
-	 'h52, 'h00404, 'h51EB851F, 'h00404,
-	 'h51, 'h00404, 'h28F5C239, 'h00404,
-	 'h50, 'h00404, 'h00000001, 'h00404,
-	 'h49, 'h00404, 'hD1EB851F, 'h20504,
-	 'h48, 'h00404, 'hA3D709E8, 'h20504,
-	 'h47, 'h00404, 'h75C28F06, 'h20504,
-	 'h46, 'h00404, 'h47AE147B, 'h20504,
-	 'h45, 'h00404, 'h1999999A, 'h20504
+'{ //      Freq    M         K                C
+	// 167-160MHz: M=16 (00808), C=5 (20302), F = 10*(16+K/2^32)
+	'h167, 'h00808, 'hB3333333, 'h20302, // pos 0: 167MHz
+	'h166, 'h00808, 'h9999999A, 'h20302, // pos 1: 166MHz
+	'h165, 'h00808, 'h80000000, 'h20302, // pos 2: 165MHz
+	'h164, 'h00808, 'h66666666, 'h20302, // pos 3: 164MHz
+	'h163, 'h00808, 'h4CCCCCCD, 'h20302, // pos 4: 163MHz
+	'h162, 'h00808, 'h33333333, 'h20302, // pos 5: 162MHz
+	'h161, 'h00808, 'h1999999A, 'h20302, // pos 6: 161MHz
+	'h160, 'h00808, 'h00000001, 'h20302, // pos 7: 160MHz
+	// 159-150MHz: M=15 (20807), C=5 (20302), F = 10*(15+K/2^32)
+	'h159, 'h20807, 'hE6666666, 'h20302, // pos 8: 159MHz
+	'h158, 'h20807, 'hCCCCCCCD, 'h20302, // pos 9: 158MHz
+	'h157, 'h20807, 'hB3333333, 'h20302, // pos 10: 157MHz
+	'h156, 'h20807, 'h9999999A, 'h20302, // pos 11: 156MHz
+	'h155, 'h20807, 'h80000000, 'h20302, // pos 12: 155MHz
+	'h154, 'h20807, 'h66666666, 'h20302, // pos 13: 154MHz
+	'h153, 'h20807, 'h4CCCCCCD, 'h20302, // pos 14: 153MHz
+	'h152, 'h20807, 'h33333333, 'h20302, // pos 15: 152MHz
+	'h151, 'h20807, 'h1999999A, 'h20302, // pos 16: 151MHz
+	'h150, 'h20807, 'h00000001, 'h20302, // pos 17: 150MHz
+	// 149-140MHz: M=8 (00404), C=3 (20201) — original values
+	'h149, 'h00404, 'hF0A3D6B4, 'h20201, // pos 18
+	'h148, 'h00404, 'hE147ADBF, 'h20201, // pos 19
+	'h147, 'h00404, 'hD1EB851F, 'h20201, // pos 20
+	'h146, 'h00404, 'hC28F5C29, 'h20201, // pos 21
+	'h145, 'h00404, 'hB33332DD, 'h20201, // pos 22
+	'h144, 'h00404, 'hA3D709E8, 'h20201, // pos 23
+	'h143, 'h00404, 'h947AE148, 'h20201, // pos 24
+	'h142, 'h00404, 'h851EB852, 'h20201, // pos 25
+	'h141, 'h00404, 'h75C28F06, 'h20201, // pos 26
+	'h140, 'h00707, 'h00000001, 'h20302, // pos 27
+	// 139-135MHz: M=8 (00404), C=3 (20201) — original values
+	'h139, 'h00404, 'h570A3D71, 'h20201, // pos 28
+	'h138, 'h00404, 'h47AE147B, 'h20201, // pos 29
+	'h137, 'h00404, 'h3851EA2E, 'h20201, // pos 30
+	'h136, 'h00404, 'h28F5C239, 'h20201, // pos 31
+	'h135, 'h00404, 'h1999999A, 'h20201, // pos 32
+	// 134-125MHz: M=10 (00505), C=4 (00202) — original values
+	'h134, 'h00505, 'hB851EB2F, 'h00202, // pos 33
+	'h133, 'h00505, 'hA3D709E8, 'h00202, // pos 34
+	'h132, 'h00505, 'h8F5C28F6, 'h00202, // pos 35
+	'h131, 'h00505, 'h7AE14758, 'h00202, // pos 36
+	'h130, 'h00505, 'h66666611, 'h00202, // pos 37
+	'h129, 'h00505, 'h51EB851F, 'h00202, // pos 38
+	'h128, 'h00505, 'h3D70A381, 'h00202, // pos 39
+	'h127, 'h00505, 'h28F5C239, 'h00202, // pos 40
+	'h126, 'h00505, 'h147AE148, 'h00202, // pos 41
+	'h125, 'h00505, 'h00000001, 'h00202, // pos 42
+	// 124-121MHz: M=9 (20504), C=4 (00202) — original values
+	'h124, 'h20504, 'hEB851E62, 'h00202, // pos 43
+	'h123, 'h20504, 'hD70A3D71, 'h00202, // pos 44
+	'h122, 'h20504, 'hC28F5C29, 'h00202, // pos 45
+	'h121, 'h20504, 'hAE147A8B, 'h00202, // pos 46
+	// 120MHz and below — original values
+	'h120, 'h00707, 'h66666611, 'h00303, // pos 47
+	'h110, 'h20706, 'h333332DD, 'h00303, // pos 48
+	'h100, 'h00404, 'h00000001, 'h00202, // pos 49
+	 'h90, 'h00707, 'h66666666, 'h00404, // pos 50
+	 'h80, 'h00707, 'h66666666, 'h20504, // pos 51
+	 'h70, 'h00707, 'h00000001, 'h00505, // pos 52
+	 'h69, 'h00404, 'h47AE147B, 'h00303, // pos 53
+	 'h68, 'h00404, 'h28F5C28F, 'h00303, // pos 54
+	 'h67, 'h00505, 'hB851EB85, 'h00404, // pos 55
+	 'h66, 'h00505, 'h8F5C28F6, 'h00404, // pos 56
+	 'h65, 'h20706, 'h00000001, 'h00505, // pos 57
+	 'h64, 'h00606, 'hCCCCCCCD, 'h00505, // pos 58
+	 'h63, 'h00606, 'h9999999A, 'h00505, // pos 59
+	'h625, 'h00404, 'hC0000000, 'h20403, // pos 60: 62.5MHz
+	 'h62, 'h00606, 'h66666666, 'h00505, // pos 61
+	 'h61, 'h00606, 'h33333333, 'h00505, // pos 62
+	 'h60, 'h00404, 'h66666611, 'h20403  // pos 63: 60MHz
 };
 
 // pos is the ACTIVE frequency position — drives the PLL
-reg   [5:0] pos  = 0;
+localparam [5:0] START_POS = 6'd47; // 120MHz — start low and step up
+reg   [5:0] pos  = START_POS;
 reg  [15:0] mins = 0;
 reg  [15:0] secs = 0;
 reg         auto = 0;
+reg         search_up = 1;          // searching upward for ceiling
+reg         coarse = 1;             // coarse phase: 10MHz steps up
+
+// Next coarse step: jump to next 10MHz boundary (higher freq = lower pos)
+// Decade positions: 49=100, 48=110, 47=120, 37=130, 27=140, 17=150, 7=160, 0=167
+function [5:0] next_coarse;
+	input [5:0] p;
+	begin
+		if(p >= 38) next_coarse = 37; // 120+→130
+		else if(p >= 28) next_coarse = 27; // 130+→140
+		else if(p >= 18) next_coarse = 17; // 140+→150
+		else if(p >= 8)  next_coarse = 7;  // 150+→160
+		else             next_coarse = 0;  // 160+→167
+	end
+endfunction
 // timer_reset deferred — timer still resets on recfg for now
 
 // Cross-clock synchronizer: reset (clk_ram) -> CLK_50M
@@ -384,7 +409,7 @@ reg  [31:0] txn_last_passcount = 0; // for continuous mode: detect next pass com
 reg  [5:0]  slot_display_pos[2]; // last tested pos per slot for display
 reg  [31:0] txn_passcount = 0;
 reg  [31:0] txn_failcount = 0;
-reg  [28:0] txn_watchdog = 0;  // ~5.4 sec at 50MHz (2^28 = 268M cycles)
+reg  [29:0] txn_watchdog = 0;  // ~10.7 sec at 50MHz (2^29 = 536M cycles)
 reg  [15:0] watchdog_count[2]; // per-slot watchdog triggers
 reg         watchdog_type[2];  // 0=state machine timeout, 1=progress timeout
 // Progress watchdog: tracks if any passcount changed in last ~10 seconds
@@ -511,7 +536,7 @@ always @(posedge CLK_50M) begin
 				txn_state <= TXN_WAIT_RECFG;
 				watchdog_count[0] <= 0; watchdog_count[1] <= 0; txn_watchdog <= 0; progress_timer <= 0; timer_reset <= 1;
 				pos <= pos - 1'd1;
-				auto <= 0;
+				auto <= 0; search_up <= 0; coarse <= 0;
 				slot_passcount[active_slot] <= 0;
 				slot_failcount[active_slot] <= 0;
 				slot_total_pass[active_slot] <= 0; slot_total_fail[active_slot] <= 0;
@@ -533,7 +558,7 @@ always @(posedge CLK_50M) begin
 				txn_state <= TXN_WAIT_RECFG;
 				watchdog_count[0] <= 0; watchdog_count[1] <= 0; txn_watchdog <= 0; progress_timer <= 0; timer_reset <= 1;
 				pos <= pos + 1'd1;
-				auto <= 0;
+				auto <= 0; search_up <= 0; coarse <= 0;
 				slot_passcount[active_slot] <= 0;
 				slot_failcount[active_slot] <= 0;
 				slot_total_pass[active_slot] <= 0; slot_total_fail[active_slot] <= 0;
@@ -577,6 +602,7 @@ always @(posedge CLK_50M) begin
 			if(ps2_key[7:0] == 'h1c || (~old_joy[5] && joystick_0[5])) begin
 				recfg <= 1;
 				auto <= 1;
+				search_up <= 0; coarse <= 0; // A resumes auto from current freq, no longer searching up
 `ifdef DUAL_SDRAM
 				txn_state <= TXN_WAIT_RECFG;
 				watchdog_count[0] <= 0; watchdog_count[1] <= 0; txn_watchdog <= 0; progress_timer <= 0; timer_reset <= 1;
@@ -645,13 +671,13 @@ always @(posedge CLK_50M) begin
 	// =========================================================
 `ifdef DUAL_SDRAM
 	// S key override: if switch_pending, force reset of state machine
-	// Watchdog: if stuck in any wait state for ~2.7 seconds, force restart
-	if(txn_state == TXN_START || txn_state == TXN_LATCH || txn_state == TXN_DECIDE || txn_state == TXN_SETTLE || txn_state == TXN_FAIL_DELAY || txn_state == TXN_CONTINUE || probe_phase)
+	// Watchdog: if stuck in any wait state for ~10.7 seconds, force restart
+	if(txn_state == TXN_START || txn_state == TXN_LATCH || txn_state == TXN_DECIDE || txn_state == TXN_SETTLE || txn_state == TXN_FAIL_DELAY || txn_state == TXN_CONTINUE || txn_state == TXN_WAIT_TEST || probe_phase)
 		txn_watchdog <= 0;
 	else
 		txn_watchdog <= txn_watchdog + 1'd1;
 
-	if(txn_watchdog[28]) begin
+	if(txn_watchdog[29]) begin
 		// Watchdog fired
 		txn_watchdog <= 0;
 		watchdog_count[active_slot] <= watchdog_count[active_slot] + 1'd1;
@@ -660,6 +686,7 @@ always @(posedge CLK_50M) begin
 			// 5+ consecutive timeouts: treat as fail, drop frequency
 			watchdog_count[active_slot] <= 0;
 			if(test_mode == 0) begin
+				slot_search_up[active_slot] <= 0; slot_coarse[active_slot] <= 0;
 				if(slot_auto[active_slot] && slot_pos[active_slot] < 63) begin
 					slot_pos[active_slot] <= slot_pos[active_slot] + 1'd1;
 					slot_time_d[active_slot] <= 0; slot_time_h[active_slot] <= 0; slot_time_m[active_slot] <= 0; slot_time_s[active_slot] <= 0;
@@ -671,6 +698,7 @@ always @(posedge CLK_50M) begin
 				pos <= slot_pos[~active_slot];
 				auto <= slot_auto[~active_slot];
 			end else begin
+				search_up <= 0; coarse <= 0;
 				if(auto && pos < 63) begin
 					pos <= pos + 1'd1;
 					slot_time_d[active_slot] <= 0; slot_time_h[active_slot] <= 0; slot_time_m[active_slot] <= 0; slot_time_s[active_slot] <= 0;
@@ -703,6 +731,7 @@ always @(posedge CLK_50M) begin
 				// 5+ no-progress timeouts: treat as fail, drop frequency
 				watchdog_count[active_slot] <= 0;
 				if(test_mode == 0) begin
+					slot_search_up[active_slot] <= 0; slot_coarse[active_slot] <= 0;
 					if(slot_auto[active_slot] && slot_pos[active_slot] < 63) begin
 						slot_pos[active_slot] <= slot_pos[active_slot] + 1'd1;
 						slot_time_d[active_slot] <= 0; slot_time_h[active_slot] <= 0; slot_time_m[active_slot] <= 0; slot_time_s[active_slot] <= 0;
@@ -713,6 +742,7 @@ always @(posedge CLK_50M) begin
 					pos <= slot_pos[~active_slot];
 					auto <= slot_auto[~active_slot];
 				end else begin
+					search_up <= 0; coarse <= 0;
 					if(auto && pos < 63) begin
 						pos <= pos + 1'd1;
 						slot_time_d[active_slot] <= 0; slot_time_h[active_slot] <= 0; slot_time_m[active_slot] <= 0; slot_time_s[active_slot] <= 0;
@@ -726,32 +756,7 @@ always @(posedge CLK_50M) begin
 		end
 	end
 
-	if(switch_pending && txn_state != TXN_DECIDE) begin
-		// Force reset of state machine for mode switch
-		switch_pending <= 0;
-		pos <= 0;
-		auto <= 1;
-		view_slot <= 0;
-		watchdog_count[0] <= 0; watchdog_count[1] <= 0;
-		txn_watchdog <= 0; progress_timer <= 0; timer_reset <= 1;
-		// Reset ALL per-slot state on every mode switch
-		slot_total_pass[0] <= 0; slot_total_pass[1] <= 0;
-		slot_total_fail[0] <= 0; slot_total_fail[1] <= 0;
-		slot_passcount[0] <= 0; slot_passcount[1] <= 0;
-		slot_failcount[0] <= 0; slot_failcount[1] <= 0;
-		slot_pos[0] <= 0; slot_pos[1] <= 0; slot_display_pos[0] <= 0; slot_display_pos[1] <= 0;
-		slot_auto[0] <= 1; slot_auto[1] <= 1; slot_ever_tested[0] <= 0; slot_ever_tested[1] <= 0; hist_count[0] <= 0; hist_count[1] <= 0;
-		slot_time_d[0]<=0; slot_time_h[0]<=0; slot_time_m[0]<=0; slot_time_s[0]<=0; slot_time_d[1]<=0; slot_time_h[1]<=0; slot_time_m[1]<=0; slot_time_s[1]<=0;
-		if(test_mode == 2'd2) begin
-			test_mode <= 2'd0;
-			active_slot <= 0;
-		end else begin
-			test_mode <= test_mode + 1'd1;
-			active_slot <= test_mode;
-		end
-		recfg <= 1;
-		txn_state <= TXN_WAIT_RECFG;
-	end else
+	// switch_pending is handled only in TXN_DECIDE (deferred to clean pass boundary) else
 	case(txn_state)
 
 	TXN_START: begin
@@ -779,7 +784,7 @@ always @(posedge CLK_50M) begin
 			txn_tested_pos <= pos;
 			slot_display_pos[active_slot] <= pos;
 			slot_ever_tested[active_slot] <= 1;
-			settle_cnt <= (test_mode != 0) ? 25'd2500000 : 25'd500000;
+			settle_cnt <= 25'd2500000; // 50ms settle after PLL reconfig
 		end
 	end
 
@@ -804,12 +809,12 @@ always @(posedge CLK_50M) begin
 	TXN_LATCH: begin
 		// Save results to the correct slot's registers
 		if(txn_failcount > 0) begin
-			// Failed — record history entry before dropping frequency
-			if(hist_count[active_slot] < 6) begin
+			// Failed — record history (skip during search_up, those are discovery not real fails)
+			if(!((test_mode == 0) ? slot_search_up[active_slot] : search_up) && hist_count[active_slot] < 6) begin
 				hist_pos[active_slot][hist_count[active_slot]] <= txn_tested_pos;
 				hist_pass[active_slot][hist_count[active_slot]] <= slot_passcount[active_slot];
 				hist_count[active_slot] <= hist_count[active_slot] + 1'd1;
-			end else begin
+			end else if(!((test_mode == 0) ? slot_search_up[active_slot] : search_up)) begin
 				// Shift history left, drop oldest
 				hist_pos[active_slot][0] <= hist_pos[active_slot][1];
 				hist_pos[active_slot][1] <= hist_pos[active_slot][2];
@@ -828,16 +833,36 @@ always @(posedge CLK_50M) begin
 			slot_failcount[active_slot] <= slot_failcount[active_slot] + txn_failcount;
 			slot_total_fail[active_slot] <= slot_total_fail[active_slot] + 1'd1;
 			if(test_mode == 0) begin
-				// Auto mode: drop frequency
-				if(slot_auto[active_slot] && slot_pos[active_slot] < 63) begin
-					slot_pos[active_slot] <= slot_pos[active_slot] + 1'd1;
+				// Auto mode: fail during search
+				if(slot_coarse[active_slot] && slot_search_up[active_slot]) begin
+					// Coarse fail: go back to previous decade+1, switch to fine
+					slot_coarse[active_slot] <= 0;
+					if(slot_pos[active_slot] < 63)
+						slot_pos[active_slot] <= slot_pos[active_slot] + 1'd1;
 					slot_time_d[active_slot] <= 0; slot_time_h[active_slot] <= 0; slot_time_m[active_slot] <= 0; slot_time_s[active_slot] <= 0;
+				end else begin
+					// Fine fail or not searching: drop frequency, done searching
+					slot_search_up[active_slot] <= 0; slot_coarse[active_slot] <= 0;
+					if(slot_auto[active_slot] && slot_pos[active_slot] < 63) begin
+						slot_pos[active_slot] <= slot_pos[active_slot] + 1'd1;
+						slot_time_d[active_slot] <= 0; slot_time_h[active_slot] <= 0; slot_time_m[active_slot] <= 0; slot_time_s[active_slot] <= 0;
+					end
 				end
 			end else begin
-				// Single slot mode: drop frequency
-				if(auto && pos < 63) begin
-					pos <= pos + 1'd1;
+				// Single slot mode: fail during search
+				if(coarse && search_up) begin
+					// Coarse fail: go back to previous decade+1, switch to fine
+					coarse <= 0;
+					if(pos < 63)
+						pos <= pos + 1'd1;
 					slot_time_d[active_slot] <= 0; slot_time_h[active_slot] <= 0; slot_time_m[active_slot] <= 0; slot_time_s[active_slot] <= 0;
+				end else begin
+					// Fine fail or not searching: drop frequency, done searching
+					search_up <= 0; coarse <= 0;
+					if(auto && pos < 63) begin
+						pos <= pos + 1'd1;
+						slot_time_d[active_slot] <= 0; slot_time_h[active_slot] <= 0; slot_time_m[active_slot] <= 0; slot_time_s[active_slot] <= 0;
+					end
 				end
 			end
 		end else begin
@@ -846,6 +871,18 @@ always @(posedge CLK_50M) begin
 			slot_failcount[active_slot] <= 0;
 			slot_total_pass[active_slot] <= slot_total_pass[active_slot] + txn_passcount;
 			if(watchdog_count[active_slot] > 0) watchdog_count[active_slot] <= watchdog_count[active_slot] - 1'd1;
+			// Search up: step to higher frequency on pass
+			if(test_mode == 0) begin
+				if(slot_search_up[active_slot] && slot_auto[active_slot] && slot_pos[active_slot] > 0) begin
+					slot_pos[active_slot] <= slot_coarse[active_slot] ? next_coarse(slot_pos[active_slot]) : (slot_pos[active_slot] - 1'd1);
+					slot_time_d[active_slot] <= 0; slot_time_h[active_slot] <= 0; slot_time_m[active_slot] <= 0; slot_time_s[active_slot] <= 0;
+				end
+			end else begin
+				if(search_up && auto && pos > 0) begin
+					pos <= coarse ? next_coarse(pos) : (pos - 1'd1);
+					slot_time_d[active_slot] <= 0; slot_time_h[active_slot] <= 0; slot_time_m[active_slot] <= 0; slot_time_s[active_slot] <= 0;
+				end
+			end
 		end
 		// Single-slot fail: show red result briefly before moving on
 		if(txn_failcount > 0 && test_mode != 0) begin
@@ -867,8 +904,9 @@ always @(posedge CLK_50M) begin
 		if(switch_pending) begin
 			// S key was pressed: switch mode — reset ALL state
 			switch_pending <= 0;
-			pos <= 0;
+			pos <= START_POS;
 			auto <= 1;
+			search_up <= 1; coarse <= 1;
 			view_slot <= 0;
 			watchdog_count[0] <= 0; watchdog_count[1] <= 0;
 			txn_watchdog <= 0; progress_timer <= 0; timer_reset <= 1;
@@ -876,8 +914,8 @@ always @(posedge CLK_50M) begin
 			slot_total_fail[0] <= 0; slot_total_fail[1] <= 0;
 			slot_passcount[0] <= 0; slot_passcount[1] <= 0;
 			slot_failcount[0] <= 0; slot_failcount[1] <= 0;
-			slot_pos[0] <= 0; slot_pos[1] <= 0; slot_display_pos[0] <= 0; slot_display_pos[1] <= 0;
-			slot_auto[0] <= 1; slot_auto[1] <= 1; slot_ever_tested[0] <= 0; slot_ever_tested[1] <= 0; hist_count[0] <= 0; hist_count[1] <= 0;
+			slot_pos[0] <= START_POS; slot_pos[1] <= START_POS; slot_display_pos[0] <= 0; slot_display_pos[1] <= 0;
+			slot_auto[0] <= 1; slot_auto[1] <= 1; slot_search_up[0] <= 1; slot_search_up[1] <= 1; slot_coarse[0] <= 1; slot_coarse[1] <= 1; slot_ever_tested[0] <= 0; slot_ever_tested[1] <= 0; hist_count[0] <= 0; hist_count[1] <= 0;
 			slot_time_d[0]<=0; slot_time_h[0]<=0; slot_time_m[0]<=0; slot_time_s[0]<=0; slot_time_d[1]<=0; slot_time_h[1]<=0; slot_time_m[1]<=0; slot_time_s[1]<=0;
 			if(test_mode == 2'd2) begin
 				test_mode <= 2'd0;
@@ -891,13 +929,20 @@ always @(posedge CLK_50M) begin
 			active_slot <= ~active_slot;
 			pos <= slot_pos[~active_slot];
 			auto <= slot_auto[~active_slot];
+			search_up <= slot_search_up[~active_slot];
+			coarse <= slot_coarse[~active_slot];
 			txn_state <= TXN_START;
 		end else begin
 			// Single slot mode
 			if(txn_failcount == 0) begin
-				// Passed — keep tester running continuously, no recfg
-				txn_last_passcount <= passcount;
-				txn_state <= TXN_CONTINUE;
+				if(pos != txn_tested_pos) begin
+					// Freq changed (search_up stepped it), need recfg
+					txn_state <= TXN_START;
+				end else begin
+					// Passed at same freq — keep running continuously, no recfg
+					txn_last_passcount <= passcount;
+					txn_state <= TXN_CONTINUE;
+				end
 			end else begin
 				// Failed — freq changed in LATCH, need full recfg
 				txn_state <= TXN_START;
@@ -923,16 +968,23 @@ always @(posedge CLK_50M) begin
 		if(sdram2_probed) begin
 			probe_phase <= 0;
 			recfg <= 1;
-			pos <= 0;
+			pos <= START_POS;
 			auto <= 1;
+			search_up <= 1; coarse <= 1;
+			slot_search_up[0] <= 1; slot_search_up[1] <= 1; slot_coarse[0] <= 1; slot_coarse[1] <= 1;
 			test_mode <= sdram2_detected ? 2'd0 : 2'd1; // Both Slots if 256MB, else Slot 1
 			active_slot <= 0;
 			txn_state <= TXN_WAIT_RECFG;
-			// Clear probe residue from slot 2 display
-			slot_passcount[1] <= 0; slot_failcount[1] <= 0;
-			slot_total_pass[1] <= 0; slot_total_fail[1] <= 0;
-			slot_display_pos[1] <= 0;
+			// Clear probe residue from both slots
+			slot_passcount[0] <= 0; slot_passcount[1] <= 0;
+			slot_failcount[0] <= 0; slot_failcount[1] <= 0;
+			slot_total_pass[0] <= 0; slot_total_pass[1] <= 0;
+			slot_total_fail[0] <= 0; slot_total_fail[1] <= 0;
+			slot_display_pos[0] <= START_POS; slot_display_pos[1] <= 0;
+			slot_pos[0] <= START_POS; slot_pos[1] <= START_POS;
 			slot_ever_tested[0] <= 0; slot_ever_tested[1] <= 0;
+			watchdog_count[0] <= 0; watchdog_count[1] <= 0;
+			txn_watchdog <= 0; progress_timer <= 0; last_total_pass <= 0;
 		end
 	end
 
@@ -951,30 +1003,32 @@ always @(posedge CLK_50M) begin
 		sdram_chip <= 0;
 `ifdef DUAL_SDRAM
 		if(SDRAM2_EN) begin
-			pos <= 34;       // probe at 100MHz
+			pos <= 49;       // probe at 100MHz (pos 49 in table)
 			auto <= 0;
 			probe_phase <= 1;
 			active_slot <= 1; // probe uses slot 2
 		end else begin
-			pos <= 0;
+			pos <= START_POS;
 			auto <= 1;
+			search_up <= 1; coarse <= 1;
 			test_mode <= 2'd1;
 		end
 		view_slot <= 0;
 		switch_pending <= 0;
 		timer_reset <= 1;
-		slot_pos[0] <= 0; slot_pos[1] <= 0; slot_display_pos[0] <= 0; slot_display_pos[1] <= 0;
+		slot_pos[0] <= START_POS; slot_pos[1] <= START_POS; slot_display_pos[0] <= 0; slot_display_pos[1] <= 0;
 		slot_passcount[0] <= 0; slot_passcount[1] <= 0;
 		slot_failcount[0] <= 0; slot_failcount[1] <= 0;
 		slot_total_pass[0] <= 0; slot_total_pass[1] <= 0;
 		slot_total_fail[0] <= 0; slot_total_fail[1] <= 0;
 		slot_time_d[0]<=0; slot_time_h[0]<=0; slot_time_m[0]<=0; slot_time_s[0]<=0; slot_time_d[1]<=0; slot_time_h[1]<=0; slot_time_m[1]<=0; slot_time_s[1]<=0;
-		slot_auto[0] <= 1; slot_auto[1] <= 1; slot_ever_tested[0] <= 0; slot_ever_tested[1] <= 0; hist_count[0] <= 0; hist_count[1] <= 0;
+		slot_auto[0] <= 1; slot_auto[1] <= 1; slot_search_up[0] <= 1; slot_search_up[1] <= 1; slot_coarse[0] <= 1; slot_coarse[1] <= 1; slot_ever_tested[0] <= 0; slot_ever_tested[1] <= 0; hist_count[0] <= 0; hist_count[1] <= 0;
 		txn_state <= TXN_WAIT_RECFG; // OSD reset triggers recfg, go straight to wait
 		watchdog_count[0] <= 0; watchdog_count[1] <= 0; progress_timer <= 0; last_total_pass <= 0;
 `else
-		pos <= 0;
+		pos <= START_POS;
 		auto <= 1;
+		search_up <= 1; coarse <= 1;
 `endif
 	end
 end
@@ -1224,6 +1278,7 @@ vgaout showrez
 	.probe_phase(probe_phase),
 	.txn_testing(txn_state == TXN_WAIT_TEST || txn_state == TXN_SETTLE || txn_state == TXN_CONTINUE),
 	.auto_mode(auto),
+	.search_up(search_up),
 `else
 	.mem_size({2'b00, sdram_sz}),
 	.slot1_freq(cfg_param[{pos, 2'd0}][11:0]),
@@ -1259,6 +1314,7 @@ vgaout showrez
 	.probe_phase(1'b0),
 	.txn_testing(1'b0),
 	.auto_mode(auto),
+	.search_up(search_up),
 `endif
 `ifdef DUAL_SDRAM
 	.total_days(total_days), .total_hours(total_hours), .total_mins(total_mins_cnt), .total_secs(total_secs_cnt),

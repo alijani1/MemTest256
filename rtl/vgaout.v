@@ -27,7 +27,7 @@ module vgaout(
 	input [15:0] s1_hpass0,s1_hpass1,s1_hpass2,s1_hpass3,s1_hpass4,s1_hpass5,
 	input [15:0] s2_hpass0,s2_hpass1,s2_hpass2,s2_hpass3,s2_hpass4,s2_hpass5,
 	input [2:0] s1_hcount, s2_hcount,
-	input probe_phase, txn_testing, auto_mode,
+	input probe_phase, txn_testing, auto_mode, search_up,
 	input [9:0] total_days, input [4:0] total_hours, input [5:0] total_mins, total_secs,
 	output reg hs, vs, de,
 	output reg [1:0] b, r, g
@@ -97,7 +97,7 @@ text_layout layout(
 	.cx(char_x),.cy(char_y),.mem_size(mem_size),
 	.s1f(slot1_freq),.s2f(slot2_freq),
 	.s1b(s1b28),.s2b(s2b28),.s1pnz(slot1_pass!=0),.s2pnz(slot2_pass!=0),
-	.s1low(slot1_pos>27),.s2low(slot2_pos>27),
+	.s1low(slot1_pos>42 && !search_up),.s2low(slot2_pos>42 && !search_up),
 	.s1tp(s1tp28),.s2tp(s2tp28),.s1tf(s1tf),.s2tf(s2tf),
 	.s1_tested(s1_ever_tested),.s2_tested(s2_ever_tested),
 	.s1th(s1th_bcd[7:0]),.s1tm(s1tm_bcd[7:0]),.s1ts(s1ts_bcd[7:0]),
@@ -329,7 +329,9 @@ always @(*) begin
 				35:ch="T";36:ch="e";37:ch="s";38:ch="t";
 				40:ch="M";41:ch="o";42:ch="d";43:ch="e";
 				default:ch=7'd32; endcase end
-			else if(!s1_tested) begin ch=7'd32; co=C; end
+			else if(!s1_tested) begin co=C; case(cx)
+				0:ch="S";1:ch="l";2:ch="o";3:ch="t";5:ch="1";6:ch=":";
+				default:ch=7'd32; endcase end
 			else begin
 				if(s1low) co=s1pnz?O:R;
 				else if(cx>=8&&cx<=13) begin
@@ -365,7 +367,8 @@ always @(*) begin
 
 		// Row 4: Slot 2
 		4: begin
-			if(tm==2'd1) begin co=W; case(cx)
+			if(tm==2'd1 && !det) begin ch=7'd32; co=W; end
+			else if(tm==2'd1) begin co=W; case(cx)
 				0:ch="S";1:ch="l";2:ch="o";3:ch="t";5:ch="2";6:ch=":";
 				8:ch="S";9:ch="k";10:ch="i";11:ch="p";12:ch="p";13:ch="e";14:ch="d";15:ch=".";
 				17:ch="P";18:ch="r";19:ch="e";20:ch="s";21:ch="s";
@@ -375,7 +378,9 @@ always @(*) begin
 				35:ch="T";36:ch="e";37:ch="s";38:ch="t";
 				40:ch="M";41:ch="o";42:ch="d";43:ch="e";
 				default:ch=7'd32; endcase end
-			else if(!s2_tested) begin ch=7'd32; co=C; end
+			else if(!s2_tested) begin co=C; case(cx)
+				0:ch="S";1:ch="l";2:ch="o";3:ch="t";5:ch="2";6:ch=":";
+				default:ch=7'd32; endcase end
 			else begin
 				if(s2low) co=s2pnz?O:R;
 				else if(cx>=8&&cx<=13) begin
