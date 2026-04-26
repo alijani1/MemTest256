@@ -5,6 +5,7 @@
 module vgaout(
 	input clk,
 	input [3:0] mem_size,
+	input [1:0] sz1, sz2,        // per-slot sizes for breakdown display (0=empty,1=32,2=64,3=128)
 	input [11:0] slot1_freq, slot2_freq,
 	input [31:0] slot1_pass, slot2_pass,
 	input [5:0] slot1_pos, slot2_pos,
@@ -94,7 +95,7 @@ assign s2_hf[0]=s2_hfreq0; assign s2_hf[1]=s2_hfreq1; assign s2_hf[2]=s2_hfreq2;
 assign s2_hf[3]=s2_hfreq3; assign s2_hf[4]=s2_hfreq4; assign s2_hf[5]=s2_hfreq5;
 
 text_layout layout(
-	.cx(char_x),.cy(char_y),.mem_size(mem_size),
+	.cx(char_x),.cy(char_y),.mem_size(mem_size),.sz1(sz1),.sz2(sz2),
 	.s1f(slot1_freq),.s2f(slot2_freq),
 	.s1b(s1b28),.s2b(s2b28),.s1pnz(slot1_pass!=0),.s2pnz(slot2_pass!=0),
 	.s1low(slot1_pos>42 && !search_up),.s2low(slot2_pos>42 && !search_up),
@@ -152,6 +153,7 @@ endmodule
 module text_layout(
 	input [5:0] cx, input [3:0] cy,
 	input [3:0] mem_size,
+	input [1:0] sz1, sz2,
 	input [11:0] s1f,s2f,
 	input [27:0] s1b,s2b, input s1pnz,s2pnz, s1low,s2low,
 	input [27:0] s1tp,s2tp, input [19:0] s1tf,s2tf,
@@ -260,13 +262,25 @@ always @(*) begin
 
 		// Row 0: Memory cyan, Time right-justified
 		0: begin
-			co = (cx <= 12) ? C : W;
+			co = (cx <= 22) ? C : W;
 			case(cx)
 			0:ch="M";1:ch="e";2:ch="m";3:ch="o";4:ch="r";5:ch="y";6:ch=":";
-			8:case(mem_size) 4'd3:ch="1";4'd4:ch="2";default:ch=7'd32; endcase
-			9:case(mem_size) 4'd1:ch="3";4'd2:ch="6";4'd3:ch="2";4'd4:ch="5";default:ch=7'd32; endcase
-			10:case(mem_size) 4'd1:ch="2";4'd2:ch="4";4'd3:ch="8";4'd4:ch="6";default:ch="0"; endcase
+			// mem_size: 1=32, 2=64, 3=128, 4=256, 5=96, 6=160, 7=192
+			8:case(mem_size) 4'd3:ch="1";4'd4:ch="2";4'd6:ch="1";4'd7:ch="1";default:ch=7'd32; endcase
+			9:case(mem_size) 4'd1:ch="3";4'd2:ch="6";4'd3:ch="2";4'd4:ch="5";4'd5:ch="9";4'd6:ch="6";4'd7:ch="9";default:ch=7'd32; endcase
+			10:case(mem_size) 4'd1:ch="2";4'd2:ch="4";4'd3:ch="8";4'd4:ch="6";4'd5:ch="6";4'd6:ch="0";4'd7:ch="2";default:ch="0"; endcase
 			11:ch="M";12:ch="B";
+			// Breakdown "(NNN+NNN)" at chars 14-22, only when dual detected (sz2 != 0)
+			// Each slot size: 1=" 32" / 2=" 64" / 3="128" right-aligned 3 digits
+			14:ch=(sz2 != 0) ? "(" : 7'd32;
+			15:ch=(sz2 != 0 && sz1 == 2'd3) ? "1" : 7'd32;
+			16:ch=(sz2 != 0 && sz1 == 2'd1) ? "3" : (sz2 != 0 && sz1 == 2'd2) ? "6" : (sz2 != 0 && sz1 == 2'd3) ? "2" : 7'd32;
+			17:ch=(sz2 != 0 && sz1 == 2'd1) ? "2" : (sz2 != 0 && sz1 == 2'd2) ? "4" : (sz2 != 0 && sz1 == 2'd3) ? "8" : 7'd32;
+			18:ch=(sz2 != 0) ? "+" : 7'd32;
+			19:ch=(sz2 == 2'd3) ? "1" : 7'd32;
+			20:ch=(sz2 == 2'd1) ? "3" : (sz2 == 2'd2) ? "6" : (sz2 == 2'd3) ? "2" : 7'd32;
+			21:ch=(sz2 == 2'd1) ? "2" : (sz2 == 2'd2) ? "4" : (sz2 == 2'd3) ? "8" : 7'd32;
+			22:ch=(sz2 != 0) ? ")" : 7'd32;
 			// Total time right-justified ending at 44
 			// No hours: "Time:MM:SS" (10 chars, pos 35-44)
 			// Hours:    "Time:H:MM:SS" (12 chars, pos 33-44)

@@ -188,6 +188,8 @@ reg   [1:0] sdram_chip = 2'h0;
 `ifdef DUAL_SDRAM
 reg         sdram2_detected = 0;
 reg         sdram2_probed = 0;
+reg   [1:0] sdram_sz2 = 0;     // detected slot 2 size (0=empty, 1=32MB, 2=64MB, 3=128MB)
+reg   [1:0] probe_sz = 2'd3;   // current probe size (3→2→1 on failure)
 
 // Mode: 0=auto(alternate both), 1=slot1 only, 2=slot2 only
 reg  [1:0]  test_mode = 0;
@@ -946,27 +948,60 @@ always @(posedge CLK_50M) begin
 	endcase
 
 	// Probe overrides the state machine
+	// Multi-size probe: try 128MB first (probe_sz=3), fall back to 64MB (2), then 32MB (1).
+	// Largest size that passes is the actual slot 2 size. All fail → empty slot.
 	if(probe_phase) begin
-		if(sdram2_probed) begin
-			probe_phase <= 0;
-			recfg <= 1;
-			pos <= START_POS;
-			auto <= 1;
-			search_up <= 1; coarse <= 1;
-			slot_search_up[0] <= 1; slot_search_up[1] <= 1; slot_coarse[0] <= 1; slot_coarse[1] <= 1;
-			test_mode <= sdram2_detected ? 2'd0 : 2'd1; // Both Slots if 256MB, else Slot 1
-			active_slot <= 0;
-			txn_state <= TXN_WAIT_RECFG;
-			// Clear probe residue from both slots
-			slot_passcount[0] <= 0; slot_passcount[1] <= 0;
-			slot_failcount[0] <= 0; slot_failcount[1] <= 0;
-			slot_total_pass[0] <= 0; slot_total_pass[1] <= 0;
-			slot_total_fail[0] <= 0; slot_total_fail[1] <= 0;
-			slot_display_pos[0] <= START_POS; slot_display_pos[1] <= 0;
-			slot_pos[0] <= START_POS; slot_pos[1] <= START_POS;
-			slot_ever_tested[0] <= 0; slot_ever_tested[1] <= 0;
-			watchdog_count[0] <= 0; watchdog_count[1] <= 0;
-			txn_watchdog <= 0; progress_timer <= 0; last_total_pass <= 0;
+		if(sdram2_probed && !reset) begin
+			if(sdram2_detected) begin
+				// Success at probe_sz — record size and exit probe phase
+				sdram_sz2 <= probe_sz;
+				probe_phase <= 0;
+				recfg <= 1;
+				pos <= START_POS;
+				auto <= 1;
+				search_up <= 1; coarse <= 1;
+				slot_search_up[0] <= 1; slot_search_up[1] <= 1; slot_coarse[0] <= 1; slot_coarse[1] <= 1;
+				test_mode <= 2'd0; // Both Slots
+				active_slot <= 0;
+				txn_state <= TXN_WAIT_RECFG;
+				// Clear probe residue from both slots
+				slot_passcount[0] <= 0; slot_passcount[1] <= 0;
+				slot_failcount[0] <= 0; slot_failcount[1] <= 0;
+				slot_total_pass[0] <= 0; slot_total_pass[1] <= 0;
+				slot_total_fail[0] <= 0; slot_total_fail[1] <= 0;
+				slot_display_pos[0] <= START_POS; slot_display_pos[1] <= 0;
+				slot_pos[0] <= START_POS; slot_pos[1] <= START_POS;
+				slot_ever_tested[0] <= 0; slot_ever_tested[1] <= 0;
+				watchdog_count[0] <= 0; watchdog_count[1] <= 0;
+				txn_watchdog <= 0; progress_timer <= 0; last_total_pass <= 0;
+			end else if(probe_sz > 2'd1) begin
+				// Failed at probe_sz — retry at smaller size
+				probe_sz <= probe_sz - 1'd1;
+				recfg <= 1; // PLL reset clears probe state in clk_ram block
+				txn_state <= TXN_WAIT_RECFG;
+			end else begin
+				// Failed at smallest size — empty slot, single slot mode
+				sdram_sz2 <= 0;
+				probe_phase <= 0;
+				recfg <= 1;
+				pos <= START_POS;
+				auto <= 1;
+				search_up <= 1; coarse <= 1;
+				slot_search_up[0] <= 1; slot_search_up[1] <= 1; slot_coarse[0] <= 1; slot_coarse[1] <= 1;
+				test_mode <= 2'd1; // Slot 1 only
+				active_slot <= 0;
+				txn_state <= TXN_WAIT_RECFG;
+				// Clear probe residue from both slots
+				slot_passcount[0] <= 0; slot_passcount[1] <= 0;
+				slot_failcount[0] <= 0; slot_failcount[1] <= 0;
+				slot_total_pass[0] <= 0; slot_total_pass[1] <= 0;
+				slot_total_fail[0] <= 0; slot_total_fail[1] <= 0;
+				slot_display_pos[0] <= START_POS; slot_display_pos[1] <= 0;
+				slot_pos[0] <= START_POS; slot_pos[1] <= START_POS;
+				slot_ever_tested[0] <= 0; slot_ever_tested[1] <= 0;
+				watchdog_count[0] <= 0; watchdog_count[1] <= 0;
+				txn_watchdog <= 0; progress_timer <= 0; last_total_pass <= 0;
+			end
 		end
 	end
 
@@ -984,17 +1019,17 @@ always @(posedge CLK_50M) begin
 		recfg <= 1;
 		sdram_chip <= 0;
 `ifdef DUAL_SDRAM
-		if(SDRAM2_EN) begin
-			pos <= 49;       // probe at 100MHz (pos 49 in table)
-			auto <= 0;
-			probe_phase <= 1;
-			active_slot <= 1; // probe uses slot 2
-		end else begin
-			pos <= START_POS;
-			auto <= 1;
-			search_up <= 1; coarse <= 1;
-			test_mode <= 2'd1;
-		end
+		// Always probe slot 2 at boot — the 100MHz probe IS the detection.
+		// SDRAM2_EN is unreliable on newer A/V Pro v9.2 boards (uses MCP23009
+		// I2C instead of SW[3]), so we ignore it and let the probe decide.
+		// Multi-size probe: starts at 128MB (probe_sz=3), falls back to 64/32MB
+		// on aliasing failures to detect actual slot 2 capacity.
+		pos <= 49;       // probe at 100MHz (pos 49 in table)
+		auto <= 0;
+		probe_phase <= 1;
+		probe_sz <= 2'd3; // start probe at 128MB
+		sdram_sz2 <= 0;
+		active_slot <= 1; // probe uses slot 2
 		view_slot <= 0;
 		switch_pending <= 0;
 		timer_reset <= 1;
@@ -1109,7 +1144,7 @@ sdram sdram2
 	.ready(sdram2_ready),
 	.wdat(tst_sdram_wdat),
 	.rdat(sdram2_rdat),
-	.sz(sdram_sz),
+	.sz(probe_phase ? probe_sz : sdram_sz2),
 	.chip(sdram_chip),
 	.DRAM_CLK(SDRAM2_CLK),
 	.DRAM_DQ(SDRAM2_DQ),
@@ -1135,9 +1170,15 @@ reg saw_read_phase = 0;
 always @(posedge clk_ram) begin
 	if(RESET) begin
 		sdram2_probed <= 0;
-		sdram2_detected <= SDRAM2_EN;
+		sdram2_detected <= 0; // start clean, probe decides
 		saw_read_phase <= 0;
-	end else if(SDRAM2_EN && !sdram2_probed && !reset && active_slot == 1) begin
+	end else if(reset && probe_phase) begin
+		// PLL reset during probe — clear state so next iteration runs fresh
+		// (used when CLK_50M triggers recfg to retry at smaller probe_sz)
+		sdram2_probed <= 0;
+		sdram2_detected <= 0;
+		saw_read_phase <= 0;
+	end else if(probe_phase && !sdram2_probed && !reset && active_slot == 1) begin
 		if(tst_sdram_rnw) saw_read_phase <= 1;
 		if(saw_read_phase) begin
 			if(failcount > 100) begin
@@ -1219,13 +1260,33 @@ generate
 		assign s2_hfreq[gi] = cfg_param[{hist_pos[1][gi], 2'd0}][11:0];
 	end
 endgenerate
+
+// Compute total memory size for display, supporting mismatched dual SDRAM
+// mem_size encoding: 0=blank, 1=32, 2=64, 3=128, 4=256, 5=96, 6=160, 7=192
+wire [8:0] mb_s1 = (sdram_sz == 2'd1) ? 9'd32 :
+                   (sdram_sz == 2'd2) ? 9'd64 :
+                   (sdram_sz == 2'd3) ? 9'd128 : 9'd0;
+wire [8:0] mb_s2 = (sdram_sz2 == 2'd1) ? 9'd32 :
+                   (sdram_sz2 == 2'd2) ? 9'd64 :
+                   (sdram_sz2 == 2'd3) ? 9'd128 : 9'd0;
+wire [8:0] mb_total = mb_s1 + mb_s2;
+wire [3:0] dual_mem_size =
+	(mb_total == 9'd32)  ? 4'd1 :
+	(mb_total == 9'd64)  ? 4'd2 :
+	(mb_total == 9'd128) ? 4'd3 :
+	(mb_total == 9'd256) ? 4'd4 :
+	(mb_total == 9'd96)  ? 4'd5 :
+	(mb_total == 9'd160) ? 4'd6 :
+	(mb_total == 9'd192) ? 4'd7 : 4'd0;
 `endif
 
 vgaout showrez
 (
 	.clk(videoclk),
 `ifdef DUAL_SDRAM
-	.mem_size(sdram2_detected ? 4'd4 : {2'b00, sdram_sz}),
+	.mem_size(dual_mem_size),
+	.sz1(sdram_sz),
+	.sz2(sdram_sz2),
 	.slot1_freq(s1_freq),
 	.slot2_freq(s2_freq),
 	.slot1_pass(s1_pass),
@@ -1263,6 +1324,8 @@ vgaout showrez
 	.search_up(search_up),
 `else
 	.mem_size({2'b00, sdram_sz}),
+	.sz1(sdram_sz),
+	.sz2(2'd0),
 	.slot1_freq(cfg_param[{pos, 2'd0}][11:0]),
 	.slot2_freq(12'd0),
 	.slot1_pass(passcount),

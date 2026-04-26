@@ -7,7 +7,7 @@ Built on [MiSTer-devel/MemTest_MiSTer](https://github.com/MiSTer-devel/MemTest_M
 ## Features
 
 - **Dual SDRAM support** — test both Slot 1 (GPIO 0) and Slot 2 (GPIO 1) without physically swapping modules
-- **Smart startup** — auto-detects 256MB dual SDRAM and enters Both Slots mode; single module defaults to Slot 1 mode
+- **Smart startup** — auto-detects dual SDRAM via 100MHz hardware probe and enters Both Slots mode; single module defaults to Slot 1 mode. Works on all I/O board revisions (no SW[3] dependency).
 - **Three test modes** — Both Slots (alternating), Slot 1 only, Slot 2 only — cycle with S key
 - **Manual frequency control** — Up/Down arrows lock to a specific frequency for targeted testing
 - **Auto resume** — A key re-enables auto stepping from current frequency without resetting to 167MHz
@@ -18,7 +18,7 @@ Built on [MiSTer-devel/MemTest_MiSTer](https://github.com/MiSTer-devel/MemTest_M
 - **Robust error handling** — dual watchdog system with retry escalation, per-slot error tracking
 - **Two-phase frequency search** — coarse 10MHz steps up from 120MHz to find the band, then fine 1MHz steps to find the exact ceiling. Users see passes from the start.
 - **1MHz frequency resolution** — full 1MHz steps from 60MHz to 167MHz for precise characterization
-- **SDRAM2 auto-detection** — probes at 100MHz on boot for reliable hardware detection
+- **SDRAM2 auto-detection** — always probes at 100MHz on boot, auto-detects Slot 2 size (128→64→32MB), supports mismatched modules, independent of board switches/flags
 
 ## Display
 
@@ -89,8 +89,8 @@ Built on [MiSTer-devel/MemTest_MiSTer](https://github.com/MiSTer-devel/MemTest_M
 ### Startup Sequence
 1. Boot shows "MEMTEST256 / Detecting Memory..."
 2. Probes Slot 2 at 100MHz — real RAM passes easily, empty slot fails instantly
-3. If 256MB detected: enters Both Slots mode automatically
-4. If 128MB only: enters Slot 1 mode
+3. If dual SDRAM detected: enters Both Slots mode automatically
+4. If single SDRAM only: enters Slot 1 mode
 5. Testing begins with a two-phase frequency search starting at 120MHz
 
 ### Frequency Search
@@ -102,6 +102,23 @@ On startup, the tester finds each slot's maximum stable frequency using a two-ph
 
 ### Test Cycle
 Each test writes a pseudo-random LFSR pattern across the entire SDRAM address space, then reads it back comparing every 16-bit word. Any mismatch is a failure. One complete write/read cycle takes approximately 2 seconds at 150MHz.
+
+### Interpreting Results
+Typical SDRAM modules used with MiSTer settle into these ranges:
+
+| Result Range | Interpretation |
+|--------------|----------------|
+| **Below 130MHz** | Marginal — some cores may be unstable. Consider replacing the module. |
+| **130–144MHz** | Acceptable — most cores will run reliably. |
+| **145–150MHz** | Good — comfortable margin for all current cores. |
+| **151–160MHz** | Excellent — well-binned chip, cool environment, or both. |
+| **Above 160MHz** | Exceptional — unusual; verify with extended runs and across reboots. |
+
+**Important caveats:**
+- A passing test at frequency F doesn't guarantee a core will run reliably at F. Cores add their own logic to the FPGA, which competes for routing resources and reduces SDRAM timing margin. Treat MemTest256's result as an upper bound, not a target.
+- Most MiSTer cores need only **126MHz**. Headroom above that is a stability margin, not a feature.
+- Real-world results vary with FPGA temperature, supply voltage, and the specific MiSTer board revision. Run for several minutes and across reboots before trusting a number.
+- If you see passes at unusually high frequencies (155+MHz), it likely reflects favorable conditions (cool FPGA, good module binning, well-routed build) rather than a guaranteed operating point. The figure to share with others is your **lowest stable frequency** across multiple sessions.
 
 ### Both Slots Mode
 Alternates testing between slots, characterizing both modules simultaneously. Default mode when 256MB (dual SDRAM) is detected.
@@ -150,11 +167,25 @@ Two independent watchdog systems protect against hangs:
 **Self-Healing**: Successful passes decrement the error counter. Transient glitches self-recover without user intervention.
 
 ### SDRAM2 Detection
-On boot, probes Slot 2 at 100MHz:
-- Real RAM passes easily at 100MHz → detected, shows 256MB
+On boot, MemTest256 always probes Slot 2 at 100MHz — the probe itself is the detection, no board flags or switches required:
+- Real RAM passes easily at 100MHz → detected, dual-slot mode enabled
 - No physical RAM → instant errors → not detected, single slot mode
-- Uses SDRAM2_EN signal from MiSTer framework (MCP23009 I2C or SW[3] DIP switch)
 - Inactive SDRAM controller held in reset with CS deselected to prevent power rail interference
+
+The probe also auto-detects Slot 2's actual capacity by trying decreasing sizes (128MB → 64MB → 32MB) until one passes without address aliasing. This means matched and mismatched module configurations are both supported correctly. Slot 1's size is reported by the MiSTer framework as usual.
+
+This works on all MiSTer hardware (DE10-Nano, MiSTer Pi) and all I/O board revisions including the new A/V Pro v9.2. Memory size displayed reflects the actual installed total:
+- 32+0 → 32MB, 64+0 → 64MB, 128+0 → 128MB
+- 32+32 → 64MB, 64+64 → 128MB, 128+128 → 256MB
+- 32+64 / 64+32 → 96MB
+- 32+128 / 128+32 → 160MB
+- 64+128 / 128+64 → 192MB
+
+**SW[3] DIP switch note:**
+- **Older I/O boards** (pre A/V Pro v9.2): SW[3] on the DE10-Nano **must be ON** to route the Slot 2 SDRAM signals at the board level. If SW[3] is OFF, the Slot 2 module is electrically disconnected regardless of what's plugged in, and MemTest256's probe will correctly report "single slot" mode.
+- **A/V Pro v9.2 (newer boards)**: SW[3] should be **OFF**. The framework auto-detects the new board and uses MCP23009 I2C for dual-slot signaling. SW[3] is ignored.
+
+If you have a dual SDRAM setup but MemTest256 only sees one module, check your SW[3] position based on your I/O board revision. Note that other dual-RAM utilities/cores follow the same hardware rules — if they work, MemTest256 will too.
 
 ## Building
 
