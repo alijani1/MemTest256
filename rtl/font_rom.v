@@ -57,6 +57,12 @@ always @(*) begin
 		{7'd124, 3'd4}: data = 8'h18; {7'd124, 3'd5}: data = 8'h18;
 		{7'd124, 3'd6}: data = 8'h18; {7'd124, 3'd7}: data = 8'h00;
 
+		// + (43) plus
+		{7'd43, 3'd0}: data = 8'h00; {7'd43, 3'd1}: data = 8'h18;
+		{7'd43, 3'd2}: data = 8'h18; {7'd43, 3'd3}: data = 8'h7E;
+		{7'd43, 3'd4}: data = 8'h18; {7'd43, 3'd5}: data = 8'h18;
+		{7'd43, 3'd6}: data = 8'h00; {7'd43, 3'd7}: data = 8'h00;
+
 		// - (45) dash/minus
 		{7'd45, 3'd0}: data = 8'h00; {7'd45, 3'd1}: data = 8'h00;
 		{7'd45, 3'd2}: data = 8'h00; {7'd45, 3'd3}: data = 8'h7E;

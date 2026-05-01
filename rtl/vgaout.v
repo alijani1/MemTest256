@@ -194,6 +194,31 @@ function [6:0] bd; input [19:0] b; input [2:0] p;
 	end
 endfunction
 
+// 4-digit right-justified BCD: p=0 thousands, 1 hundreds, 2 tens, 3 units. Always shows units.
+function [6:0] bd4r; input [19:0] b; input [1:0] p;
+	begin
+		case(p)
+		2'd0: bd4r = (b[19:12]!=8'd0)  ? dc(b[15:12]) : 7'd32;
+		2'd1: bd4r = (b[19:8] !=12'd0) ? dc(b[11:8])  : 7'd32;
+		2'd2: bd4r = (b[19:4] !=16'd0) ? dc(b[7:4])   : 7'd32;
+		2'd3: bd4r = dc(b[3:0]);
+		default: bd4r = 7'd32;
+		endcase
+	end
+endfunction
+
+// 3-digit right-justified BCD: p=0 hundreds, 1 tens, 2 units. Always shows units.
+function [6:0] bd3r; input [19:0] b; input [1:0] p;
+	begin
+		case(p)
+		2'd0: bd3r = (b[19:8] !=12'd0) ? dc(b[11:8]) : 7'd32;
+		2'd1: bd3r = (b[19:4] !=16'd0) ? dc(b[7:4])  : 7'd32;
+		2'd2: bd3r = dc(b[3:0]);
+		default: bd3r = 7'd32;
+		endcase
+	end
+endfunction
+
 function [6:0] sp; input [1:0] p;
 	case(p) 0:sp="-";1:sp=7'd92;2:sp="|";3:sp="/"; endcase
 endfunction
@@ -270,30 +295,43 @@ always @(*) begin
 			9:case(mem_size) 4'd1:ch="3";4'd2:ch="6";4'd3:ch="2";4'd4:ch="5";4'd5:ch="9";4'd6:ch="6";4'd7:ch="9";default:ch=7'd32; endcase
 			10:case(mem_size) 4'd1:ch="2";4'd2:ch="4";4'd3:ch="8";4'd4:ch="6";4'd5:ch="6";4'd6:ch="0";4'd7:ch="2";default:ch="0"; endcase
 			11:ch="M";12:ch="B";
-			// Breakdown "(NNN+NNN)" at chars 14-22, only when dual detected (sz2 != 0)
-			// Each slot size: 1=" 32" / 2=" 64" / 3="128" right-aligned 3 digits
-			14:ch=(sz2 != 0) ? "(" : 7'd32;
-			15:ch=(sz2 != 0 && sz1 == 2'd3) ? "1" : 7'd32;
-			16:ch=(sz2 != 0 && sz1 == 2'd1) ? "3" : (sz2 != 0 && sz1 == 2'd2) ? "6" : (sz2 != 0 && sz1 == 2'd3) ? "2" : 7'd32;
-			17:ch=(sz2 != 0 && sz1 == 2'd1) ? "2" : (sz2 != 0 && sz1 == 2'd2) ? "4" : (sz2 != 0 && sz1 == 2'd3) ? "8" : 7'd32;
-			18:ch=(sz2 != 0) ? "+" : 7'd32;
-			19:ch=(sz2 == 2'd3) ? "1" : 7'd32;
-			20:ch=(sz2 == 2'd1) ? "3" : (sz2 == 2'd2) ? "6" : (sz2 == 2'd3) ? "2" : 7'd32;
-			21:ch=(sz2 == 2'd1) ? "2" : (sz2 == 2'd2) ? "4" : (sz2 == 2'd3) ? "8" : 7'd32;
-			22:ch=(sz2 != 0) ? ")" : 7'd32;
-			// Total time right-justified ending at 44
-			// No hours: "Time:MM:SS" (10 chars, pos 35-44)
-			// Hours:    "Time:H:MM:SS" (12 chars, pos 33-44)
-			// Days:     "D:HH:MM:SS" (10+ chars)
-			32:ch=(tt_h!=0||tt_d!=0)?"T":7'd32;
-			33:ch=(tt_h!=0||tt_d!=0)?"i":7'd32;
-			34:ch=(tt_h!=0||tt_d!=0)?"m":"T";
-			35:ch=(tt_h!=0||tt_d!=0)?"e":"i";
-			36:ch=(tt_h!=0||tt_d!=0)?":":"m";
-			37:ch=(tt_h!=0||tt_d!=0)?7'd32:"e";
-			38:ch=(tt_h!=0||tt_d!=0)?dc(tt_h[3:0]):":";
-			39:ch=(tt_h!=0||tt_d!=0)?":":7'd32;
-			40:ch=dc(tt_m[7:4]);
+			// Breakdown "TTTMB: SSS+SSS" — colon then per-slot sizes, only when dual (sz2 != 0)
+			// Variable-width, no padding: 128+128, 64+128, 128+32, 32+32, etc.
+			// "+" position shifts left when slot 1 is 2-digit (32 or 64)
+			13:ch=(sz2 != 0) ? ":" : 7'd32;
+			// pos 15-17: slot 1 first 2-3 digits
+			15:ch=(sz2 != 0) ? ((sz1 == 2'd3) ? "1" : (sz1 == 2'd2) ? "6" : (sz1 == 2'd1) ? "3" : 7'd32) : 7'd32;
+			16:ch=(sz2 != 0) ? ((sz1 == 2'd3) ? "2" : (sz1 == 2'd2) ? "4" : (sz1 == 2'd1) ? "2" : 7'd32) : 7'd32;
+			// pos 17: "8" if s1 is 128, else "+" (s1 is 2-digit)
+			17:ch=(sz2 != 0) ? ((sz1 == 2'd3) ? "8" : "+") : 7'd32;
+			// pos 18: "+" if s1 is 128 (3-digit), else s2 first digit
+			18:ch=(sz2 != 0) ? ((sz1 == 2'd3) ? "+" :
+			      (sz2 == 2'd3) ? "1" : (sz2 == 2'd2) ? "6" : (sz2 == 2'd1) ? "3" : 7'd32) : 7'd32;
+			// pos 19: s2 1st (s1=128) or 2nd (s1=2-digit) digit
+			19:ch=(sz2 != 0) ? ((sz1 == 2'd3) ?
+			      ((sz2 == 2'd3) ? "1" : (sz2 == 2'd2) ? "6" : (sz2 == 2'd1) ? "3" : 7'd32) :
+			      ((sz2 == 2'd3) ? "2" : (sz2 == 2'd2) ? "4" : (sz2 == 2'd1) ? "2" : 7'd32)) : 7'd32;
+			// pos 20: s2 2nd (s1=128) or 3rd (s1=2-digit, only if s2=128) digit
+			20:ch=(sz2 != 0) ? ((sz1 == 2'd3) ?
+			      ((sz2 == 2'd3) ? "2" : (sz2 == 2'd2) ? "4" : (sz2 == 2'd1) ? "2" : 7'd32) :
+			      ((sz2 == 2'd3) ? "8" : 7'd32)) : 7'd32;
+			// pos 21: s2 3rd digit (only when both are 128)
+			21:ch=(sz2 != 0 && sz1 == 2'd3 && sz2 == 2'd3) ? "8" : 7'd32;
+			// Total time right-justified ending at 44 (13 chars max, pos 32-44)
+			//   < 1h: "Time:MM:SS"      (right-aligned, pos 35-44, leading blanks 32-34)
+			//   < 1d: "Time:HH:MM:SS"   (fills exactly, pos 32-44)
+			//  >= 1d: " DDd HH:MM:SS"   (drops Time: prefix to fit days, pos 32-44)
+			32:ch=(tt_d!=0)?7'd32:(tt_h!=0)?"T":7'd32;
+			33:ch=(tt_d!=0)?((tt_d[7:4]!=0)?dc(tt_d[7:4]):7'd32):
+			      (tt_h!=0)?"i":7'd32;
+			34:ch=(tt_d!=0)?dc(tt_d[3:0]):(tt_h!=0)?"m":7'd32;
+			35:ch=(tt_d!=0)?"d":(tt_h!=0)?"e":"T";
+			36:ch=(tt_d!=0)?7'd32:(tt_h!=0)?":":"i";
+			37:ch=(tt_d!=0)?dc(tt_h[7:4]):
+			      (tt_h!=0)?((tt_h[7:4]!=0)?dc(tt_h[7:4]):7'd32):"m";
+			38:ch=(tt_d!=0)?dc(tt_h[3:0]):(tt_h!=0)?dc(tt_h[3:0]):"e";
+			39:ch=(tt_d!=0)?":":(tt_h!=0)?":":":";
+			40:ch=(tt_d!=0||tt_h!=0)?dc(tt_m[7:4]):((tt_m[7:4]!=0)?dc(tt_m[7:4]):7'd32);
 			41:ch=dc(tt_m[3:0]);
 			42:ch=":";
 			43:ch=dc(tt_s[7:4]);
@@ -366,15 +404,23 @@ always @(*) begin
 				21:ch=s1pnz?bd7(s1b,1):7'd32;22:ch=s1pnz?bd7(s1b,2):7'd32;
 				23:ch=s1pnz?bd7(s1b,3):7'd32;24:ch=s1pnz?bd7(s1b,4):7'd32;
 				25:ch=s1pnz?bd7(s1b,5):7'd32;26:ch=s1pnz?bd7(s1b,6):7'd32;
-				// Time: "Time:Dd H:MM" when days>0, "Time:H:MM:SS" when hours>0, "Time:M:SS" otherwise
+				// Time format:
+				//  >= 1 day:  "Time:DDd HH:MM"   (positions 28-41)
+				//  >= 1 hour: "Time:HH:MM:SS"    (positions 28-40)
+				//  < 1 hour:  "Time:MM:SS"       (positions 28-37)
+				// Tens digit is blanked if leading zero in mins/hours modes for cleaner look.
 				28:ch="T";29:ch="i";30:ch="m";31:ch="e";32:ch=":";
-				33:ch=(s1td!=0)?dc(s1td[3:0]):(s1th!=0)?dc(s1th[3:0]):(s1tm[7:4]!=0)?dc(s1tm[7:4]):7'd32;
-				34:ch=(s1td!=0)?"d":(s1th!=0)?":":dc(s1tm[3:0]);
-				35:ch=(s1td!=0)?dc(s1th[3:0]):(s1th!=0)?dc(s1tm[7:4]):":";
-				36:ch=(s1td!=0)?":":(s1th!=0)?dc(s1tm[3:0]):dc(s1ts[7:4]);
-				37:ch=(s1td!=0)?dc(s1tm[7:4]):(s1th!=0)?":":dc(s1ts[3:0]);
-				38:ch=(s1td!=0)?dc(s1tm[3:0]):(s1th!=0)?dc(s1ts[7:4]):7'd32;
-				39:ch=(s1td!=0)?7'd32:(s1th!=0)?dc(s1ts[3:0]):7'd32;
+				33:ch=(s1td!=0)?((s1td[7:4]!=0)?dc(s1td[7:4]):7'd32):
+				      (s1th!=0)?((s1th[7:4]!=0)?dc(s1th[7:4]):7'd32):
+				      ((s1tm[7:4]!=0)?dc(s1tm[7:4]):7'd32);
+				34:ch=(s1td!=0)?dc(s1td[3:0]):(s1th!=0)?dc(s1th[3:0]):dc(s1tm[3:0]);
+				35:ch=(s1td!=0)?"d":":";
+				36:ch=(s1td!=0)?7'd32:(s1th!=0)?dc(s1tm[7:4]):dc(s1ts[7:4]);
+				37:ch=(s1td!=0)?dc(s1th[7:4]):(s1th!=0)?dc(s1tm[3:0]):dc(s1ts[3:0]);
+				38:ch=(s1td!=0)?dc(s1th[3:0]):(s1th!=0)?":":7'd32;
+				39:ch=(s1td!=0)?":":(s1th!=0)?dc(s1ts[7:4]):7'd32;
+				40:ch=(s1td!=0)?dc(s1tm[7:4]):(s1th!=0)?dc(s1ts[3:0]):7'd32;
+				41:ch=(s1td!=0)?dc(s1tm[3:0]):7'd32;
 				44:ch=(act==0)?sp(spin):7'd32;
 				default:ch=7'd32; endcase
 			end end
@@ -416,14 +462,19 @@ always @(*) begin
 				21:ch=s2pnz?(det?bd7(s2b,1):"-"):7'd32;22:ch=s2pnz?(det?bd7(s2b,2):"-"):7'd32;
 				23:ch=s2pnz?(det?bd7(s2b,3):"-"):7'd32;24:ch=s2pnz?(det?bd7(s2b,4):"-"):7'd32;
 				25:ch=s2pnz?(det?bd7(s2b,5):"-"):7'd32;26:ch=s2pnz?(det?bd7(s2b,6):"-"):7'd32;
+				// Time format same as slot 1: see slot 1 row for layout details.
 				28:ch="T";29:ch="i";30:ch="m";31:ch="e";32:ch=":";
-				33:ch=(s2td!=0)?dc(s2td[3:0]):(s2th!=0)?dc(s2th[3:0]):(s2tm[7:4]!=0)?dc(s2tm[7:4]):7'd32;
-				34:ch=(s2td!=0)?"d":(s2th!=0)?":":dc(s2tm[3:0]);
-				35:ch=(s2td!=0)?dc(s2th[3:0]):(s2th!=0)?dc(s2tm[7:4]):":";
-				36:ch=(s2td!=0)?":":(s2th!=0)?dc(s2tm[3:0]):dc(s2ts[7:4]);
-				37:ch=(s2td!=0)?dc(s2tm[7:4]):(s2th!=0)?":":dc(s2ts[3:0]);
-				38:ch=(s2td!=0)?dc(s2tm[3:0]):(s2th!=0)?dc(s2ts[7:4]):7'd32;
-				39:ch=(s2td!=0)?7'd32:(s2th!=0)?dc(s2ts[3:0]):7'd32;
+				33:ch=(s2td!=0)?((s2td[7:4]!=0)?dc(s2td[7:4]):7'd32):
+				      (s2th!=0)?((s2th[7:4]!=0)?dc(s2th[7:4]):7'd32):
+				      ((s2tm[7:4]!=0)?dc(s2tm[7:4]):7'd32);
+				34:ch=(s2td!=0)?dc(s2td[3:0]):(s2th!=0)?dc(s2th[3:0]):dc(s2tm[3:0]);
+				35:ch=(s2td!=0)?"d":":";
+				36:ch=(s2td!=0)?7'd32:(s2th!=0)?dc(s2tm[7:4]):dc(s2ts[7:4]);
+				37:ch=(s2td!=0)?dc(s2th[7:4]):(s2th!=0)?dc(s2tm[3:0]):dc(s2ts[3:0]);
+				38:ch=(s2td!=0)?dc(s2th[3:0]):(s2th!=0)?":":7'd32;
+				39:ch=(s2td!=0)?":":(s2th!=0)?dc(s2ts[7:4]):7'd32;
+				40:ch=(s2td!=0)?dc(s2tm[7:4]):(s2th!=0)?dc(s2ts[3:0]):7'd32;
+				41:ch=(s2td!=0)?dc(s2tm[3:0]):7'd32;
 				44:ch=(act==1)?sp(spin):7'd32;
 				default:ch=7'd32; endcase
 			end end
@@ -471,32 +522,39 @@ always @(*) begin
 			end end
 
 		// Row 7: Slot 1 history pass row
+		// 4-digit right-justified pass count per column (positions 11-14, 15-18, ..., 31-34)
+		// 3-digit right-justified fail count at positions 42-44
 		7: begin
 			if(tm==2'd2 || s1_hcnt==0) begin ch=7'd32; co=W; end
 			else begin
 				co=(cx<36)?G:R; // pass numbers green, fail red
 				case(cx)
 				0:ch="P";1:ch="a";2:ch="s";3:ch="s";4:ch="e";5:ch="d";6:ch=":";
-				12:ch=(s1_hcnt>0)?bd(get_hpass(0,0),0):7'd32;
-				13:ch=(s1_hcnt>0)?bd(get_hpass(0,0),1):7'd32;
-				14:ch=(s1_hcnt>0)?bd(get_hpass(0,0),2):7'd32;
-				16:ch=(s1_hcnt>1)?bd(get_hpass(1,0),0):7'd32;
-				17:ch=(s1_hcnt>1)?bd(get_hpass(1,0),1):7'd32;
-				18:ch=(s1_hcnt>1)?bd(get_hpass(1,0),2):7'd32;
-				20:ch=(s1_hcnt>2)?bd(get_hpass(2,0),0):7'd32;
-				21:ch=(s1_hcnt>2)?bd(get_hpass(2,0),1):7'd32;
-				22:ch=(s1_hcnt>2)?bd(get_hpass(2,0),2):7'd32;
-				24:ch=(s1_hcnt>3)?bd(get_hpass(3,0),0):7'd32;
-				25:ch=(s1_hcnt>3)?bd(get_hpass(3,0),1):7'd32;
-				26:ch=(s1_hcnt>3)?bd(get_hpass(3,0),2):7'd32;
-				28:ch=(s1_hcnt>4)?bd(get_hpass(4,0),0):7'd32;
-				29:ch=(s1_hcnt>4)?bd(get_hpass(4,0),1):7'd32;
-				30:ch=(s1_hcnt>4)?bd(get_hpass(4,0),2):7'd32;
-				32:ch=(s1_hcnt>5)?bd(get_hpass(5,0),0):7'd32;
-				33:ch=(s1_hcnt>5)?bd(get_hpass(5,0),1):7'd32;
-				34:ch=(s1_hcnt>5)?bd(get_hpass(5,0),2):7'd32;
-				36:ch=7'd32;
-				42:ch=bd(s1tf,0);43:ch=bd(s1tf,1);44:ch=bd(s1tf,2);
+				11:ch=(s1_hcnt>0)?bd4r(get_hpass(0,0),2'd0):7'd32;
+				12:ch=(s1_hcnt>0)?bd4r(get_hpass(0,0),2'd1):7'd32;
+				13:ch=(s1_hcnt>0)?bd4r(get_hpass(0,0),2'd2):7'd32;
+				14:ch=(s1_hcnt>0)?bd4r(get_hpass(0,0),2'd3):7'd32;
+				15:ch=(s1_hcnt>1)?bd4r(get_hpass(1,0),2'd0):7'd32;
+				16:ch=(s1_hcnt>1)?bd4r(get_hpass(1,0),2'd1):7'd32;
+				17:ch=(s1_hcnt>1)?bd4r(get_hpass(1,0),2'd2):7'd32;
+				18:ch=(s1_hcnt>1)?bd4r(get_hpass(1,0),2'd3):7'd32;
+				19:ch=(s1_hcnt>2)?bd4r(get_hpass(2,0),2'd0):7'd32;
+				20:ch=(s1_hcnt>2)?bd4r(get_hpass(2,0),2'd1):7'd32;
+				21:ch=(s1_hcnt>2)?bd4r(get_hpass(2,0),2'd2):7'd32;
+				22:ch=(s1_hcnt>2)?bd4r(get_hpass(2,0),2'd3):7'd32;
+				23:ch=(s1_hcnt>3)?bd4r(get_hpass(3,0),2'd0):7'd32;
+				24:ch=(s1_hcnt>3)?bd4r(get_hpass(3,0),2'd1):7'd32;
+				25:ch=(s1_hcnt>3)?bd4r(get_hpass(3,0),2'd2):7'd32;
+				26:ch=(s1_hcnt>3)?bd4r(get_hpass(3,0),2'd3):7'd32;
+				27:ch=(s1_hcnt>4)?bd4r(get_hpass(4,0),2'd0):7'd32;
+				28:ch=(s1_hcnt>4)?bd4r(get_hpass(4,0),2'd1):7'd32;
+				29:ch=(s1_hcnt>4)?bd4r(get_hpass(4,0),2'd2):7'd32;
+				30:ch=(s1_hcnt>4)?bd4r(get_hpass(4,0),2'd3):7'd32;
+				31:ch=(s1_hcnt>5)?bd4r(get_hpass(5,0),2'd0):7'd32;
+				32:ch=(s1_hcnt>5)?bd4r(get_hpass(5,0),2'd1):7'd32;
+				33:ch=(s1_hcnt>5)?bd4r(get_hpass(5,0),2'd2):7'd32;
+				34:ch=(s1_hcnt>5)?bd4r(get_hpass(5,0),2'd3):7'd32;
+				42:ch=bd3r(s1tf,2'd0);43:ch=bd3r(s1tf,2'd1);44:ch=bd3r(s1tf,2'd2);
 				default:ch=7'd32;
 				endcase
 			end end
@@ -532,33 +590,38 @@ always @(*) begin
 				endcase
 			end end
 
-		// Row 9: Slot 2 history pass row
+		// Row 9: Slot 2 history pass row (4-digit right-justified per column)
 		9: begin
 			if(tm==2'd1 || s2_hcnt==0) begin ch=7'd32; co=W; end
 			else begin
 				co=(cx<36)?G:R;
 				case(cx)
 				0:ch="P";1:ch="a";2:ch="s";3:ch="s";4:ch="e";5:ch="d";6:ch=":";
-				12:ch=(s2_hcnt>0)?bd(get_hpass(0,1),0):7'd32;
-				13:ch=(s2_hcnt>0)?bd(get_hpass(0,1),1):7'd32;
-				14:ch=(s2_hcnt>0)?bd(get_hpass(0,1),2):7'd32;
-				16:ch=(s2_hcnt>1)?bd(get_hpass(1,1),0):7'd32;
-				17:ch=(s2_hcnt>1)?bd(get_hpass(1,1),1):7'd32;
-				18:ch=(s2_hcnt>1)?bd(get_hpass(1,1),2):7'd32;
-				20:ch=(s2_hcnt>2)?bd(get_hpass(2,1),0):7'd32;
-				21:ch=(s2_hcnt>2)?bd(get_hpass(2,1),1):7'd32;
-				22:ch=(s2_hcnt>2)?bd(get_hpass(2,1),2):7'd32;
-				24:ch=(s2_hcnt>3)?bd(get_hpass(3,1),0):7'd32;
-				25:ch=(s2_hcnt>3)?bd(get_hpass(3,1),1):7'd32;
-				26:ch=(s2_hcnt>3)?bd(get_hpass(3,1),2):7'd32;
-				28:ch=(s2_hcnt>4)?bd(get_hpass(4,1),0):7'd32;
-				29:ch=(s2_hcnt>4)?bd(get_hpass(4,1),1):7'd32;
-				30:ch=(s2_hcnt>4)?bd(get_hpass(4,1),2):7'd32;
-				32:ch=(s2_hcnt>5)?bd(get_hpass(5,1),0):7'd32;
-				33:ch=(s2_hcnt>5)?bd(get_hpass(5,1),1):7'd32;
-				34:ch=(s2_hcnt>5)?bd(get_hpass(5,1),2):7'd32;
-				36:ch=7'd32;
-				42:ch=bd(s2tf,0);43:ch=bd(s2tf,1);44:ch=bd(s2tf,2);
+				11:ch=(s2_hcnt>0)?bd4r(get_hpass(0,1),2'd0):7'd32;
+				12:ch=(s2_hcnt>0)?bd4r(get_hpass(0,1),2'd1):7'd32;
+				13:ch=(s2_hcnt>0)?bd4r(get_hpass(0,1),2'd2):7'd32;
+				14:ch=(s2_hcnt>0)?bd4r(get_hpass(0,1),2'd3):7'd32;
+				15:ch=(s2_hcnt>1)?bd4r(get_hpass(1,1),2'd0):7'd32;
+				16:ch=(s2_hcnt>1)?bd4r(get_hpass(1,1),2'd1):7'd32;
+				17:ch=(s2_hcnt>1)?bd4r(get_hpass(1,1),2'd2):7'd32;
+				18:ch=(s2_hcnt>1)?bd4r(get_hpass(1,1),2'd3):7'd32;
+				19:ch=(s2_hcnt>2)?bd4r(get_hpass(2,1),2'd0):7'd32;
+				20:ch=(s2_hcnt>2)?bd4r(get_hpass(2,1),2'd1):7'd32;
+				21:ch=(s2_hcnt>2)?bd4r(get_hpass(2,1),2'd2):7'd32;
+				22:ch=(s2_hcnt>2)?bd4r(get_hpass(2,1),2'd3):7'd32;
+				23:ch=(s2_hcnt>3)?bd4r(get_hpass(3,1),2'd0):7'd32;
+				24:ch=(s2_hcnt>3)?bd4r(get_hpass(3,1),2'd1):7'd32;
+				25:ch=(s2_hcnt>3)?bd4r(get_hpass(3,1),2'd2):7'd32;
+				26:ch=(s2_hcnt>3)?bd4r(get_hpass(3,1),2'd3):7'd32;
+				27:ch=(s2_hcnt>4)?bd4r(get_hpass(4,1),2'd0):7'd32;
+				28:ch=(s2_hcnt>4)?bd4r(get_hpass(4,1),2'd1):7'd32;
+				29:ch=(s2_hcnt>4)?bd4r(get_hpass(4,1),2'd2):7'd32;
+				30:ch=(s2_hcnt>4)?bd4r(get_hpass(4,1),2'd3):7'd32;
+				31:ch=(s2_hcnt>5)?bd4r(get_hpass(5,1),2'd0):7'd32;
+				32:ch=(s2_hcnt>5)?bd4r(get_hpass(5,1),2'd1):7'd32;
+				33:ch=(s2_hcnt>5)?bd4r(get_hpass(5,1),2'd2):7'd32;
+				34:ch=(s2_hcnt>5)?bd4r(get_hpass(5,1),2'd3):7'd32;
+				42:ch=bd3r(s2tf,2'd0);43:ch=bd3r(s2tf,2'd1);44:ch=bd3r(s2tf,2'd2);
 				default:ch=7'd32;
 				endcase
 			end end
