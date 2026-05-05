@@ -685,10 +685,12 @@ always @(posedge CLK_50M) begin
 		watchdog_count[active_slot] <= watchdog_count[active_slot] + 1'd1;
 		watchdog_type[active_slot] <= 0; // S = state machine timeout
 		if(watchdog_count[active_slot] >= 4) begin
-			// 5+ consecutive timeouts: treat as fail, drop frequency
+			// 5+ consecutive timeouts: treat as fail, drop frequency.
+			// Always increment slot_total_fail (search or post-search) so the progress
+			// watchdog sees activity. Counts get reset at start point if still in search.
 			watchdog_count[active_slot] <= 0;
 			if(test_mode == 0) begin
-				slot_search_up[active_slot] <= 0; slot_coarse[active_slot] <= 0;
+				if(slot_search_up[active_slot] && slot_coarse[active_slot]) slot_coarse[active_slot] <= 0;
 				if(slot_auto[active_slot] && slot_pos[active_slot] < 63) begin
 					slot_pos[active_slot] <= slot_pos[active_slot] + 1'd1;
 					slot_time_d[active_slot] <= 0; slot_time_h[active_slot] <= 0; slot_time_m[active_slot] <= 0; slot_time_s[active_slot] <= 0;
@@ -700,7 +702,7 @@ always @(posedge CLK_50M) begin
 				pos <= slot_pos[~active_slot];
 				auto <= slot_auto[~active_slot];
 			end else begin
-				search_up <= 0; coarse <= 0;
+				if(search_up && coarse) coarse <= 0;
 				if(auto && pos < 63) begin
 					pos <= pos + 1'd1;
 					slot_time_d[active_slot] <= 0; slot_time_h[active_slot] <= 0; slot_time_m[active_slot] <= 0; slot_time_s[active_slot] <= 0;
@@ -721,7 +723,8 @@ always @(posedge CLK_50M) begin
 			last_total_pass <= slot_total_pass[0] + slot_passcount[0] + slot_total_pass[1] + slot_passcount[1] +
 			                   slot_total_fail[0] + slot_total_fail[1];
 			progress_timer <= 0;
-		end else if(!probe_phase) begin
+		end else if(!probe_phase && txn_state != TXN_WAIT_TEST) begin
+			// Suppress during active testing — at low freqs a single test may exceed 10.7s
 			progress_timer <= progress_timer + 1'd1;
 		end
 
@@ -730,10 +733,11 @@ always @(posedge CLK_50M) begin
 			watchdog_count[active_slot] <= watchdog_count[active_slot] + 1'd1;
 			watchdog_type[active_slot] <= 1; // P = progress timeout
 			if(watchdog_count[active_slot] >= 4) begin
-				// 5+ no-progress timeouts: treat as fail, drop frequency
+				// 5+ no-progress timeouts: treat as fail, drop frequency.
+				// Always increment slot_total_fail; reset at start point if still in search.
 				watchdog_count[active_slot] <= 0;
 				if(test_mode == 0) begin
-					slot_search_up[active_slot] <= 0; slot_coarse[active_slot] <= 0;
+					if(slot_search_up[active_slot] && slot_coarse[active_slot]) slot_coarse[active_slot] <= 0;
 					if(slot_auto[active_slot] && slot_pos[active_slot] < 63) begin
 						slot_pos[active_slot] <= slot_pos[active_slot] + 1'd1;
 						slot_time_d[active_slot] <= 0; slot_time_h[active_slot] <= 0; slot_time_m[active_slot] <= 0; slot_time_s[active_slot] <= 0;
@@ -744,7 +748,7 @@ always @(posedge CLK_50M) begin
 					pos <= slot_pos[~active_slot];
 					auto <= slot_auto[~active_slot];
 				end else begin
-					search_up <= 0; coarse <= 0;
+					if(search_up && coarse) coarse <= 0;
 					if(auto && pos < 63) begin
 						pos <= pos + 1'd1;
 						slot_time_d[active_slot] <= 0; slot_time_h[active_slot] <= 0; slot_time_m[active_slot] <= 0; slot_time_s[active_slot] <= 0;
@@ -809,62 +813,137 @@ always @(posedge CLK_50M) begin
 	end
 
 	TXN_LATCH: begin
-		// Save results to the correct slot's registers
+		// Save results to the correct slot's registers.
+		// Two phases: search (coarse-up + fine-down) and post-search (real testing).
+		// Search ends only when first PASS occurs during fine-down — that pass is the start point.
 		if(txn_failcount > 0) begin
-			// Failed — record history (skip during search_up, those are discovery not real fails)
-			if(!((test_mode == 0) ? slot_search_up[active_slot] : search_up) && hist_count[active_slot] < 6) begin
-				hist_pos[active_slot][hist_count[active_slot]] <= txn_tested_pos;
-				hist_pass[active_slot][hist_count[active_slot]] <= slot_passcount[active_slot];
-				hist_count[active_slot] <= hist_count[active_slot] + 1'd1;
-			end else if(!((test_mode == 0) ? slot_search_up[active_slot] : search_up)) begin
-				// Shift history left, drop oldest
-				hist_pos[active_slot][0] <= hist_pos[active_slot][1];
-				hist_pos[active_slot][1] <= hist_pos[active_slot][2];
-				hist_pos[active_slot][2] <= hist_pos[active_slot][3];
-				hist_pos[active_slot][3] <= hist_pos[active_slot][4];
-				hist_pos[active_slot][4] <= hist_pos[active_slot][5];
-				hist_pos[active_slot][5] <= txn_tested_pos;
-				hist_pass[active_slot][0] <= hist_pass[active_slot][1];
-				hist_pass[active_slot][1] <= hist_pass[active_slot][2];
-				hist_pass[active_slot][2] <= hist_pass[active_slot][3];
-				hist_pass[active_slot][3] <= hist_pass[active_slot][4];
-				hist_pass[active_slot][4] <= hist_pass[active_slot][5];
-				hist_pass[active_slot][5] <= slot_passcount[active_slot];
-			end
-			slot_passcount[active_slot] <= 0;
-			slot_failcount[active_slot] <= slot_failcount[active_slot] + txn_failcount;
-			slot_total_fail[active_slot] <= slot_total_fail[active_slot] + 1'd1;
 			if(test_mode == 0) begin
-				// Auto mode: any fail during search ends search, switch to downward stepping
-				slot_search_up[active_slot] <= 0; slot_coarse[active_slot] <= 0;
-				if(slot_auto[active_slot] && slot_pos[active_slot] < 63) begin
-					slot_pos[active_slot] <= slot_pos[active_slot] + 1'd1;
-					slot_time_d[active_slot] <= 0; slot_time_h[active_slot] <= 0; slot_time_m[active_slot] <= 0; slot_time_s[active_slot] <= 0;
+				if(slot_search_up[active_slot]) begin
+					// Search-phase fail: drop one step, keep searching.
+					// Increment fail counts so progress watchdog sees activity; they
+					// will be reset when the start point is found (fine-down pass).
+					if(slot_coarse[active_slot]) slot_coarse[active_slot] <= 0; // coarse fail → enter fine-down
+					if(slot_auto[active_slot] && slot_pos[active_slot] < 63) begin
+						slot_pos[active_slot] <= slot_pos[active_slot] + 1'd1;
+						slot_time_d[active_slot] <= 0; slot_time_h[active_slot] <= 0; slot_time_m[active_slot] <= 0; slot_time_s[active_slot] <= 0;
+					end
+					slot_passcount[active_slot] <= 0;
+					slot_failcount[active_slot] <= slot_failcount[active_slot] + txn_failcount;
+					slot_total_fail[active_slot] <= slot_total_fail[active_slot] + 1'd1;
+				end else begin
+					// Real fail (post-search): record history, increment fail counts
+					if(hist_count[active_slot] < 6) begin
+						hist_pos[active_slot][hist_count[active_slot]] <= txn_tested_pos;
+						hist_pass[active_slot][hist_count[active_slot]] <= slot_passcount[active_slot];
+						hist_count[active_slot] <= hist_count[active_slot] + 1'd1;
+					end else begin
+						// Shift history left, drop oldest
+						hist_pos[active_slot][0] <= hist_pos[active_slot][1];
+						hist_pos[active_slot][1] <= hist_pos[active_slot][2];
+						hist_pos[active_slot][2] <= hist_pos[active_slot][3];
+						hist_pos[active_slot][3] <= hist_pos[active_slot][4];
+						hist_pos[active_slot][4] <= hist_pos[active_slot][5];
+						hist_pos[active_slot][5] <= txn_tested_pos;
+						hist_pass[active_slot][0] <= hist_pass[active_slot][1];
+						hist_pass[active_slot][1] <= hist_pass[active_slot][2];
+						hist_pass[active_slot][2] <= hist_pass[active_slot][3];
+						hist_pass[active_slot][3] <= hist_pass[active_slot][4];
+						hist_pass[active_slot][4] <= hist_pass[active_slot][5];
+						hist_pass[active_slot][5] <= slot_passcount[active_slot];
+					end
+					slot_passcount[active_slot] <= 0;
+					slot_failcount[active_slot] <= slot_failcount[active_slot] + txn_failcount;
+					slot_total_fail[active_slot] <= slot_total_fail[active_slot] + 1'd1;
+					if(slot_auto[active_slot] && slot_pos[active_slot] < 63) begin
+						slot_pos[active_slot] <= slot_pos[active_slot] + 1'd1;
+						slot_time_d[active_slot] <= 0; slot_time_h[active_slot] <= 0; slot_time_m[active_slot] <= 0; slot_time_s[active_slot] <= 0;
+					end
 				end
 			end else begin
-				// Single slot mode: any fail during search ends search, switch to downward stepping
-				search_up <= 0; coarse <= 0;
-				if(auto && pos < 63) begin
-					pos <= pos + 1'd1;
-					slot_time_d[active_slot] <= 0; slot_time_h[active_slot] <= 0; slot_time_m[active_slot] <= 0; slot_time_s[active_slot] <= 0;
+				// Single slot mode
+				if(search_up) begin
+					// Search-phase fail. Same: increment fails for progress watchdog,
+					// reset later at start point.
+					if(coarse) coarse <= 0;
+					if(auto && pos < 63) begin
+						pos <= pos + 1'd1;
+						slot_time_d[active_slot] <= 0; slot_time_h[active_slot] <= 0; slot_time_m[active_slot] <= 0; slot_time_s[active_slot] <= 0;
+					end
+					slot_passcount[active_slot] <= 0;
+					slot_failcount[active_slot] <= slot_failcount[active_slot] + txn_failcount;
+					slot_total_fail[active_slot] <= slot_total_fail[active_slot] + 1'd1;
+				end else begin
+					// Real fail
+					if(hist_count[active_slot] < 6) begin
+						hist_pos[active_slot][hist_count[active_slot]] <= txn_tested_pos;
+						hist_pass[active_slot][hist_count[active_slot]] <= slot_passcount[active_slot];
+						hist_count[active_slot] <= hist_count[active_slot] + 1'd1;
+					end else begin
+						hist_pos[active_slot][0] <= hist_pos[active_slot][1];
+						hist_pos[active_slot][1] <= hist_pos[active_slot][2];
+						hist_pos[active_slot][2] <= hist_pos[active_slot][3];
+						hist_pos[active_slot][3] <= hist_pos[active_slot][4];
+						hist_pos[active_slot][4] <= hist_pos[active_slot][5];
+						hist_pos[active_slot][5] <= txn_tested_pos;
+						hist_pass[active_slot][0] <= hist_pass[active_slot][1];
+						hist_pass[active_slot][1] <= hist_pass[active_slot][2];
+						hist_pass[active_slot][2] <= hist_pass[active_slot][3];
+						hist_pass[active_slot][3] <= hist_pass[active_slot][4];
+						hist_pass[active_slot][4] <= hist_pass[active_slot][5];
+						hist_pass[active_slot][5] <= slot_passcount[active_slot];
+					end
+					slot_passcount[active_slot] <= 0;
+					slot_failcount[active_slot] <= slot_failcount[active_slot] + txn_failcount;
+					slot_total_fail[active_slot] <= slot_total_fail[active_slot] + 1'd1;
+					if(auto && pos < 63) begin
+						pos <= pos + 1'd1;
+						slot_time_d[active_slot] <= 0; slot_time_h[active_slot] <= 0; slot_time_m[active_slot] <= 0; slot_time_s[active_slot] <= 0;
+					end
 				end
 			end
 		end else begin
-			// Passed — decrement watchdog_count on success (self-heal)
+			// Passed — always increment pass counts (display needs s1pnz/s2pnz=true to show "P").
+			// Start-point case below overrides counts to (1, 0, 1, 0) for clean post-search state.
 			slot_passcount[active_slot] <= slot_passcount[active_slot] + txn_passcount;
 			slot_failcount[active_slot] <= 0;
 			slot_total_pass[active_slot] <= slot_total_pass[active_slot] + txn_passcount;
 			if(watchdog_count[active_slot] > 0) watchdog_count[active_slot] <= watchdog_count[active_slot] - 1'd1;
-			// Search up: step to higher frequency on pass
 			if(test_mode == 0) begin
-				if(slot_search_up[active_slot] && slot_auto[active_slot] && slot_pos[active_slot] > 0) begin
-					slot_pos[active_slot] <= slot_coarse[active_slot] ? next_coarse(slot_pos[active_slot]) : (slot_pos[active_slot] - 1'd1);
-					slot_time_d[active_slot] <= 0; slot_time_h[active_slot] <= 0; slot_time_m[active_slot] <= 0; slot_time_s[active_slot] <= 0;
+				if(slot_search_up[active_slot]) begin
+					if(slot_coarse[active_slot]) begin
+						// Coarse-up pass: step to next decade.
+						if(slot_auto[active_slot] && slot_pos[active_slot] > 0) begin
+							slot_pos[active_slot] <= next_coarse(slot_pos[active_slot]);
+							slot_time_d[active_slot] <= 0; slot_time_h[active_slot] <= 0; slot_time_m[active_slot] <= 0; slot_time_s[active_slot] <= 0;
+						end
+					end else begin
+						// Fine-down pass: START POINT FOUND. End search and reset counters.
+						// These assignments override the accumulating ones above (last NBA wins).
+						slot_search_up[active_slot] <= 0;
+						slot_passcount[active_slot] <= txn_passcount;
+						slot_failcount[active_slot] <= 0;
+						slot_total_pass[active_slot] <= txn_passcount;
+						slot_total_fail[active_slot] <= 0;
+						hist_count[active_slot] <= 0;
+					end
 				end
+				// Post-search: accumulate (already done above)
 			end else begin
-				if(search_up && auto && pos > 0) begin
-					pos <= coarse ? next_coarse(pos) : (pos - 1'd1);
-					slot_time_d[active_slot] <= 0; slot_time_h[active_slot] <= 0; slot_time_m[active_slot] <= 0; slot_time_s[active_slot] <= 0;
+				if(search_up) begin
+					if(coarse) begin
+						if(auto && pos > 0) begin
+							pos <= next_coarse(pos);
+							slot_time_d[active_slot] <= 0; slot_time_h[active_slot] <= 0; slot_time_m[active_slot] <= 0; slot_time_s[active_slot] <= 0;
+						end
+					end else begin
+						// Start point found
+						search_up <= 0;
+						slot_passcount[active_slot] <= txn_passcount;
+						slot_failcount[active_slot] <= 0;
+						slot_total_pass[active_slot] <= txn_passcount;
+						slot_total_fail[active_slot] <= 0;
+						hist_count[active_slot] <= 0;
+					end
 				end
 			end
 		end
@@ -1209,6 +1288,17 @@ wire [31:0] s2_pass = slot_passcount[1];
 wire [5:0]  s1_pos  = (active_slot == 0) ? txn_tested_pos : slot_display_pos[0];
 wire [5:0]  s2_pos  = (active_slot == 1) ? txn_tested_pos : slot_display_pos[1];
 
+// Per-slot search state for display. Independent — slot 1 may finish search while slot 2 is still searching.
+// In Both Slots mode use slot_search_up[]; in single-slot mode the active slot uses search_up.
+wire s1_searching = (test_mode == 2'd0) ? slot_search_up[0] :
+                    (test_mode == 2'd1) ? search_up : 1'b0;
+wire s2_searching = (test_mode == 2'd0) ? slot_search_up[1] :
+                    (test_mode == 2'd2) ? search_up : 1'b0;
+wire any_searching = s1_searching | s2_searching;
+
+// Live freq for history display: use slot_pos (next target) not slot_display_pos (last tested).
+// Avoids briefly showing the just-failed freq as both historical entry AND live entry.
+
 wire [1:0] slot1_status = (s1_pass > 0) ? 2'd1 : 2'd0;
 wire [1:0] slot2_status = (s2_pass > 0) ? 2'd1 : 2'd0;
 wire       slot1_blink  = (s1_pos > 27); // below 125MHz
@@ -1250,6 +1340,9 @@ assign rez3_val = {2'b00, (sdram_sz == 3) ? ~sdram_chip : 2'b00};
 `ifdef DUAL_SDRAM
 wire [11:0] s1_freq = cfg_param[{s1_pos, 2'd0}][11:0];
 wire [11:0] s2_freq = cfg_param[{s2_pos, 2'd0}][11:0];
+// Live freq for history live-entry display: uses slot_pos (next target after a fail)
+wire [11:0] s1_live_freq = cfg_param[{slot_pos[0], 2'd0}][11:0];
+wire [11:0] s2_live_freq = cfg_param[{slot_pos[1], 2'd0}][11:0];
 
 // History frequency lookups
 wire [11:0] s1_hfreq[6], s2_hfreq[6];
@@ -1322,6 +1415,11 @@ vgaout showrez
 	.txn_testing(txn_state == TXN_WAIT_TEST || txn_state == TXN_SETTLE || txn_state == TXN_CONTINUE),
 	.auto_mode(auto),
 	.search_up(search_up),
+	.s1_searching(s1_searching),
+	.s2_searching(s2_searching),
+	.any_searching(any_searching),
+	.s1_live_freq(s1_live_freq),
+	.s2_live_freq(s2_live_freq),
 `else
 	.mem_size({2'b00, sdram_sz}),
 	.sz1(sdram_sz),
@@ -1360,6 +1458,11 @@ vgaout showrez
 	.txn_testing(1'b0),
 	.auto_mode(auto),
 	.search_up(search_up),
+	.s1_searching(search_up),
+	.s2_searching(1'b0),
+	.any_searching(search_up),
+	.s1_live_freq(cfg_param[{pos, 2'd0}][11:0]),
+	.s2_live_freq(12'd0),
 `endif
 `ifdef DUAL_SDRAM
 	.total_days(total_days), .total_hours(total_hours), .total_mins(total_mins_cnt), .total_secs(total_secs_cnt),

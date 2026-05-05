@@ -29,6 +29,8 @@ module vgaout(
 	input [15:0] s2_hpass0,s2_hpass1,s2_hpass2,s2_hpass3,s2_hpass4,s2_hpass5,
 	input [2:0] s1_hcount, s2_hcount,
 	input probe_phase, txn_testing, auto_mode, search_up,
+	input s1_searching, s2_searching, any_searching,
+	input [11:0] s1_live_freq, s2_live_freq,
 	input [9:0] total_days, input [4:0] total_hours, input [5:0] total_mins, total_secs,
 	output reg hs, vs, de,
 	output reg [1:0] b, r, g
@@ -106,6 +108,8 @@ text_layout layout(
 	.tm(test_mode),.det(sdram2_detected),.act(active_slot),.chip(chip),
 	.wdog1_bcd(wdog1_bcd),.wdog2_bcd(wdog2_bcd),.wt1(watchdog_type1),.wt2(watchdog_type2),
 	.probe(probe_phase),.testing(txn_testing),.amode(auto_mode),
+	.s1_search(s1_searching),.s2_search(s2_searching),.any_search(any_searching),
+	.s1lf(s1_live_freq),.s2lf(s2_live_freq),
 	.s1td(s1td_bcd[7:0]),.s2td(s2td_bcd[7:0]),
 	.tt_d(tt_d_bcd[7:0]),.tt_h(tt_h_bcd[7:0]),.tt_m(tt_m_bcd[7:0]),.tt_s(tt_s_bcd[7:0]),
 	.spin(frame_cnt[4:3]),.blink(frame_cnt[3]),
@@ -162,6 +166,8 @@ module text_layout(
 	input [1:0] tm, input det,act, input [1:0] chip,
 	input [19:0] wdog1_bcd, wdog2_bcd, input wt1, wt2,
 	input probe, testing, amode,
+	input s1_search, s2_search, any_search,
+	input [11:0] s1lf, s2lf,
 	input [7:0] s1td, s2td, // per-slot days BCD
 	input [7:0] tt_d, tt_h, tt_m, tt_s, // total time D:H:M:S BCD
 	input [1:0] spin, input blink,
@@ -359,14 +365,27 @@ always @(*) begin
 			32:case(chip) 2'd0:ch="h";default:ch=7'd32; endcase
 			default:ch=7'd32; endcase end
 
-		// Row 2: separator with "Current Test" label starting at pos 4
+		// Row 2: separator with label.
+		// "Locating Test Start Point" (steady) when any slot is still searching;
+		// "Current Test" once both slots have found their start point.
 		2: begin co=Y;
-			if(cx<4) ch="-";
-			else case(cx)
-				5:ch="C";6:ch="u";7:ch="r";8:ch="r";9:ch="e";10:ch="n";11:ch="t";
-				13:ch="T";14:ch="e";15:ch="s";16:ch="t";
-				default:ch=(cx>=18&&cx<45)?"-":7'd32;
-			endcase
+			if(any_search) begin
+				if(cx<4) ch="-";
+				else case(cx)
+					5:ch="L";6:ch="o";7:ch="c";8:ch="a";9:ch="t";10:ch="i";11:ch="n";12:ch="g";
+					14:ch="T";15:ch="e";16:ch="s";17:ch="t";
+					19:ch="S";20:ch="t";21:ch="a";22:ch="r";23:ch="t";
+					25:ch="P";26:ch="o";27:ch="i";28:ch="n";29:ch="t";
+					default:ch=(cx>=31&&cx<45)?"-":7'd32;
+				endcase
+			end else begin
+				if(cx<4) ch="-";
+				else case(cx)
+					5:ch="C";6:ch="u";7:ch="r";8:ch="r";9:ch="e";10:ch="n";11:ch="t";
+					13:ch="T";14:ch="e";15:ch="s";16:ch="t";
+					default:ch=(cx>=18&&cx<45)?"-":7'd32;
+				endcase
+			end
 		end
 
 		// Row 3: Slot 1
@@ -489,32 +508,34 @@ always @(*) begin
 		end
 
 		// Row 6: Slot 1 history freq row
-		// "Slot 1: Mhz NNN NNN NNN NNN NNN NNN|Fail"
+		// Hidden during slot 1's search phase. After search ends, shows live current freq
+		// at column == hist_count[0], plus any historical fail entries.
 		6: begin
-			if(tm==2'd2 || s1_hcnt==0) begin ch=7'd32; co=W; end
+			if(tm==2'd2 || s1_search) begin ch=7'd32; co=W; end
 			else begin co=W;
 				case(cx)
 				0:ch="S";1:ch="l";2:ch="o";3:ch="t";5:ch="1";6:ch=":";
 				8:ch="M";9:ch="h";10:ch="z";
-				// 6 freq columns: positions 12,16,20,24,28,32 (4 chars each: space+3 digits)
-				12:ch=(s1_hcnt>0)?fd(get_hfreq(0,0),0):7'd32;
-				13:ch=(s1_hcnt>0)?fd(get_hfreq(0,0),1):7'd32;
-				14:ch=(s1_hcnt>0)?fd(get_hfreq(0,0),2):7'd32;
-				16:ch=(s1_hcnt>1)?fd(get_hfreq(1,0),0):7'd32;
-				17:ch=(s1_hcnt>1)?fd(get_hfreq(1,0),1):7'd32;
-				18:ch=(s1_hcnt>1)?fd(get_hfreq(1,0),2):7'd32;
-				20:ch=(s1_hcnt>2)?fd(get_hfreq(2,0),0):7'd32;
-				21:ch=(s1_hcnt>2)?fd(get_hfreq(2,0),1):7'd32;
-				22:ch=(s1_hcnt>2)?fd(get_hfreq(2,0),2):7'd32;
-				24:ch=(s1_hcnt>3)?fd(get_hfreq(3,0),0):7'd32;
-				25:ch=(s1_hcnt>3)?fd(get_hfreq(3,0),1):7'd32;
-				26:ch=(s1_hcnt>3)?fd(get_hfreq(3,0),2):7'd32;
-				28:ch=(s1_hcnt>4)?fd(get_hfreq(4,0),0):7'd32;
-				29:ch=(s1_hcnt>4)?fd(get_hfreq(4,0),1):7'd32;
-				30:ch=(s1_hcnt>4)?fd(get_hfreq(4,0),2):7'd32;
-				32:ch=(s1_hcnt>5)?fd(get_hfreq(5,0),0):7'd32;
-				33:ch=(s1_hcnt>5)?fd(get_hfreq(5,0),1):7'd32;
-				34:ch=(s1_hcnt>5)?fd(get_hfreq(5,0),2):7'd32;
+				// 6 freq columns at positions {12,13,14}, {16,17,18}, etc.
+				// Each column: historical if hcnt > N, live current freq if hcnt == N (start point or active freq).
+				12:ch=(s1_hcnt>0)?fd(get_hfreq(0,0),0):(s1_hcnt==0)?fd(s1lf,0):7'd32;
+				13:ch=(s1_hcnt>0)?fd(get_hfreq(0,0),1):(s1_hcnt==0)?fd(s1lf,1):7'd32;
+				14:ch=(s1_hcnt>0)?fd(get_hfreq(0,0),2):(s1_hcnt==0)?fd(s1lf,2):7'd32;
+				16:ch=(s1_hcnt>1)?fd(get_hfreq(1,0),0):(s1_hcnt==1)?fd(s1lf,0):7'd32;
+				17:ch=(s1_hcnt>1)?fd(get_hfreq(1,0),1):(s1_hcnt==1)?fd(s1lf,1):7'd32;
+				18:ch=(s1_hcnt>1)?fd(get_hfreq(1,0),2):(s1_hcnt==1)?fd(s1lf,2):7'd32;
+				20:ch=(s1_hcnt>2)?fd(get_hfreq(2,0),0):(s1_hcnt==2)?fd(s1lf,0):7'd32;
+				21:ch=(s1_hcnt>2)?fd(get_hfreq(2,0),1):(s1_hcnt==2)?fd(s1lf,1):7'd32;
+				22:ch=(s1_hcnt>2)?fd(get_hfreq(2,0),2):(s1_hcnt==2)?fd(s1lf,2):7'd32;
+				24:ch=(s1_hcnt>3)?fd(get_hfreq(3,0),0):(s1_hcnt==3)?fd(s1lf,0):7'd32;
+				25:ch=(s1_hcnt>3)?fd(get_hfreq(3,0),1):(s1_hcnt==3)?fd(s1lf,1):7'd32;
+				26:ch=(s1_hcnt>3)?fd(get_hfreq(3,0),2):(s1_hcnt==3)?fd(s1lf,2):7'd32;
+				28:ch=(s1_hcnt>4)?fd(get_hfreq(4,0),0):(s1_hcnt==4)?fd(s1lf,0):7'd32;
+				29:ch=(s1_hcnt>4)?fd(get_hfreq(4,0),1):(s1_hcnt==4)?fd(s1lf,1):7'd32;
+				30:ch=(s1_hcnt>4)?fd(get_hfreq(4,0),2):(s1_hcnt==4)?fd(s1lf,2):7'd32;
+				32:ch=(s1_hcnt>5)?fd(get_hfreq(5,0),0):(s1_hcnt==5)?fd(s1lf,0):7'd32;
+				33:ch=(s1_hcnt>5)?fd(get_hfreq(5,0),1):(s1_hcnt==5)?fd(s1lf,1):7'd32;
+				34:ch=(s1_hcnt>5)?fd(get_hfreq(5,0),2):(s1_hcnt==5)?fd(s1lf,2):7'd32;
 				36:ch=7'd32;
 				41:ch="F";42:ch="a";43:ch="i";44:ch="l";
 				default:ch=7'd32;
@@ -522,68 +543,68 @@ always @(*) begin
 			end end
 
 		// Row 7: Slot 1 history pass row
-		// 4-digit right-justified pass count per column (positions 11-14, 15-18, ..., 31-34)
-		// 3-digit right-justified fail count at positions 42-44
+		// Hidden during slot 1's search phase. Live entry at column == hist_count[0] blinks.
 		7: begin
-			if(tm==2'd2 || s1_hcnt==0) begin ch=7'd32; co=W; end
+			if(tm==2'd2 || s1_search) begin ch=7'd32; co=W; end
 			else begin
 				co=(cx<36)?G:R; // pass numbers green, fail red
 				case(cx)
 				0:ch="P";1:ch="a";2:ch="s";3:ch="s";4:ch="e";5:ch="d";6:ch=":";
-				11:ch=(s1_hcnt>0)?bd4r(get_hpass(0,0),2'd0):7'd32;
-				12:ch=(s1_hcnt>0)?bd4r(get_hpass(0,0),2'd1):7'd32;
-				13:ch=(s1_hcnt>0)?bd4r(get_hpass(0,0),2'd2):7'd32;
-				14:ch=(s1_hcnt>0)?bd4r(get_hpass(0,0),2'd3):7'd32;
-				15:ch=(s1_hcnt>1)?bd4r(get_hpass(1,0),2'd0):7'd32;
-				16:ch=(s1_hcnt>1)?bd4r(get_hpass(1,0),2'd1):7'd32;
-				17:ch=(s1_hcnt>1)?bd4r(get_hpass(1,0),2'd2):7'd32;
-				18:ch=(s1_hcnt>1)?bd4r(get_hpass(1,0),2'd3):7'd32;
-				19:ch=(s1_hcnt>2)?bd4r(get_hpass(2,0),2'd0):7'd32;
-				20:ch=(s1_hcnt>2)?bd4r(get_hpass(2,0),2'd1):7'd32;
-				21:ch=(s1_hcnt>2)?bd4r(get_hpass(2,0),2'd2):7'd32;
-				22:ch=(s1_hcnt>2)?bd4r(get_hpass(2,0),2'd3):7'd32;
-				23:ch=(s1_hcnt>3)?bd4r(get_hpass(3,0),2'd0):7'd32;
-				24:ch=(s1_hcnt>3)?bd4r(get_hpass(3,0),2'd1):7'd32;
-				25:ch=(s1_hcnt>3)?bd4r(get_hpass(3,0),2'd2):7'd32;
-				26:ch=(s1_hcnt>3)?bd4r(get_hpass(3,0),2'd3):7'd32;
-				27:ch=(s1_hcnt>4)?bd4r(get_hpass(4,0),2'd0):7'd32;
-				28:ch=(s1_hcnt>4)?bd4r(get_hpass(4,0),2'd1):7'd32;
-				29:ch=(s1_hcnt>4)?bd4r(get_hpass(4,0),2'd2):7'd32;
-				30:ch=(s1_hcnt>4)?bd4r(get_hpass(4,0),2'd3):7'd32;
-				31:ch=(s1_hcnt>5)?bd4r(get_hpass(5,0),2'd0):7'd32;
-				32:ch=(s1_hcnt>5)?bd4r(get_hpass(5,0),2'd1):7'd32;
-				33:ch=(s1_hcnt>5)?bd4r(get_hpass(5,0),2'd2):7'd32;
-				34:ch=(s1_hcnt>5)?bd4r(get_hpass(5,0),2'd3):7'd32;
+				11:ch=(s1_hcnt>0)?bd4r(get_hpass(0,0),2'd0):(s1_hcnt==0&&(act==1||blink))?bd4r(s1b[19:0],2'd0):7'd32;
+				12:ch=(s1_hcnt>0)?bd4r(get_hpass(0,0),2'd1):(s1_hcnt==0&&(act==1||blink))?bd4r(s1b[19:0],2'd1):7'd32;
+				13:ch=(s1_hcnt>0)?bd4r(get_hpass(0,0),2'd2):(s1_hcnt==0&&(act==1||blink))?bd4r(s1b[19:0],2'd2):7'd32;
+				14:ch=(s1_hcnt>0)?bd4r(get_hpass(0,0),2'd3):(s1_hcnt==0&&(act==1||blink))?bd4r(s1b[19:0],2'd3):7'd32;
+				15:ch=(s1_hcnt>1)?bd4r(get_hpass(1,0),2'd0):(s1_hcnt==1&&(act==1||blink))?bd4r(s1b[19:0],2'd0):7'd32;
+				16:ch=(s1_hcnt>1)?bd4r(get_hpass(1,0),2'd1):(s1_hcnt==1&&(act==1||blink))?bd4r(s1b[19:0],2'd1):7'd32;
+				17:ch=(s1_hcnt>1)?bd4r(get_hpass(1,0),2'd2):(s1_hcnt==1&&(act==1||blink))?bd4r(s1b[19:0],2'd2):7'd32;
+				18:ch=(s1_hcnt>1)?bd4r(get_hpass(1,0),2'd3):(s1_hcnt==1&&(act==1||blink))?bd4r(s1b[19:0],2'd3):7'd32;
+				19:ch=(s1_hcnt>2)?bd4r(get_hpass(2,0),2'd0):(s1_hcnt==2&&(act==1||blink))?bd4r(s1b[19:0],2'd0):7'd32;
+				20:ch=(s1_hcnt>2)?bd4r(get_hpass(2,0),2'd1):(s1_hcnt==2&&(act==1||blink))?bd4r(s1b[19:0],2'd1):7'd32;
+				21:ch=(s1_hcnt>2)?bd4r(get_hpass(2,0),2'd2):(s1_hcnt==2&&(act==1||blink))?bd4r(s1b[19:0],2'd2):7'd32;
+				22:ch=(s1_hcnt>2)?bd4r(get_hpass(2,0),2'd3):(s1_hcnt==2&&(act==1||blink))?bd4r(s1b[19:0],2'd3):7'd32;
+				23:ch=(s1_hcnt>3)?bd4r(get_hpass(3,0),2'd0):(s1_hcnt==3&&(act==1||blink))?bd4r(s1b[19:0],2'd0):7'd32;
+				24:ch=(s1_hcnt>3)?bd4r(get_hpass(3,0),2'd1):(s1_hcnt==3&&(act==1||blink))?bd4r(s1b[19:0],2'd1):7'd32;
+				25:ch=(s1_hcnt>3)?bd4r(get_hpass(3,0),2'd2):(s1_hcnt==3&&(act==1||blink))?bd4r(s1b[19:0],2'd2):7'd32;
+				26:ch=(s1_hcnt>3)?bd4r(get_hpass(3,0),2'd3):(s1_hcnt==3&&(act==1||blink))?bd4r(s1b[19:0],2'd3):7'd32;
+				27:ch=(s1_hcnt>4)?bd4r(get_hpass(4,0),2'd0):(s1_hcnt==4&&(act==1||blink))?bd4r(s1b[19:0],2'd0):7'd32;
+				28:ch=(s1_hcnt>4)?bd4r(get_hpass(4,0),2'd1):(s1_hcnt==4&&(act==1||blink))?bd4r(s1b[19:0],2'd1):7'd32;
+				29:ch=(s1_hcnt>4)?bd4r(get_hpass(4,0),2'd2):(s1_hcnt==4&&(act==1||blink))?bd4r(s1b[19:0],2'd2):7'd32;
+				30:ch=(s1_hcnt>4)?bd4r(get_hpass(4,0),2'd3):(s1_hcnt==4&&(act==1||blink))?bd4r(s1b[19:0],2'd3):7'd32;
+				31:ch=(s1_hcnt>5)?bd4r(get_hpass(5,0),2'd0):(s1_hcnt==5&&(act==1||blink))?bd4r(s1b[19:0],2'd0):7'd32;
+				32:ch=(s1_hcnt>5)?bd4r(get_hpass(5,0),2'd1):(s1_hcnt==5&&(act==1||blink))?bd4r(s1b[19:0],2'd1):7'd32;
+				33:ch=(s1_hcnt>5)?bd4r(get_hpass(5,0),2'd2):(s1_hcnt==5&&(act==1||blink))?bd4r(s1b[19:0],2'd2):7'd32;
+				34:ch=(s1_hcnt>5)?bd4r(get_hpass(5,0),2'd3):(s1_hcnt==5&&(act==1||blink))?bd4r(s1b[19:0],2'd3):7'd32;
 				42:ch=bd3r(s1tf,2'd0);43:ch=bd3r(s1tf,2'd1);44:ch=bd3r(s1tf,2'd2);
 				default:ch=7'd32;
 				endcase
 			end end
 
 		// Row 8: Slot 2 history freq row
+		// Hidden during slot 2's search phase. Live entry at column == hist_count[1] post-search.
 		8: begin
-			if(tm==2'd1 || s2_hcnt==0) begin ch=7'd32; co=W; end
+			if(tm==2'd1 || s2_search) begin ch=7'd32; co=W; end
 			else begin co=W;
 				case(cx)
 				0:ch="S";1:ch="l";2:ch="o";3:ch="t";5:ch="2";6:ch=":";
 				8:ch="M";9:ch="h";10:ch="z";
-				12:ch=(s2_hcnt>0)?fd(get_hfreq(0,1),0):7'd32;
-				13:ch=(s2_hcnt>0)?fd(get_hfreq(0,1),1):7'd32;
-				14:ch=(s2_hcnt>0)?fd(get_hfreq(0,1),2):7'd32;
-				16:ch=(s2_hcnt>1)?fd(get_hfreq(1,1),0):7'd32;
-				17:ch=(s2_hcnt>1)?fd(get_hfreq(1,1),1):7'd32;
-				18:ch=(s2_hcnt>1)?fd(get_hfreq(1,1),2):7'd32;
-				20:ch=(s2_hcnt>2)?fd(get_hfreq(2,1),0):7'd32;
-				21:ch=(s2_hcnt>2)?fd(get_hfreq(2,1),1):7'd32;
-				22:ch=(s2_hcnt>2)?fd(get_hfreq(2,1),2):7'd32;
-				24:ch=(s2_hcnt>3)?fd(get_hfreq(3,1),0):7'd32;
-				25:ch=(s2_hcnt>3)?fd(get_hfreq(3,1),1):7'd32;
-				26:ch=(s2_hcnt>3)?fd(get_hfreq(3,1),2):7'd32;
-				28:ch=(s2_hcnt>4)?fd(get_hfreq(4,1),0):7'd32;
-				29:ch=(s2_hcnt>4)?fd(get_hfreq(4,1),1):7'd32;
-				30:ch=(s2_hcnt>4)?fd(get_hfreq(4,1),2):7'd32;
-				32:ch=(s2_hcnt>5)?fd(get_hfreq(5,1),0):7'd32;
-				33:ch=(s2_hcnt>5)?fd(get_hfreq(5,1),1):7'd32;
-				34:ch=(s2_hcnt>5)?fd(get_hfreq(5,1),2):7'd32;
+				12:ch=(s2_hcnt>0)?fd(get_hfreq(0,1),0):(s2_hcnt==0)?fd(s2lf,0):7'd32;
+				13:ch=(s2_hcnt>0)?fd(get_hfreq(0,1),1):(s2_hcnt==0)?fd(s2lf,1):7'd32;
+				14:ch=(s2_hcnt>0)?fd(get_hfreq(0,1),2):(s2_hcnt==0)?fd(s2lf,2):7'd32;
+				16:ch=(s2_hcnt>1)?fd(get_hfreq(1,1),0):(s2_hcnt==1)?fd(s2lf,0):7'd32;
+				17:ch=(s2_hcnt>1)?fd(get_hfreq(1,1),1):(s2_hcnt==1)?fd(s2lf,1):7'd32;
+				18:ch=(s2_hcnt>1)?fd(get_hfreq(1,1),2):(s2_hcnt==1)?fd(s2lf,2):7'd32;
+				20:ch=(s2_hcnt>2)?fd(get_hfreq(2,1),0):(s2_hcnt==2)?fd(s2lf,0):7'd32;
+				21:ch=(s2_hcnt>2)?fd(get_hfreq(2,1),1):(s2_hcnt==2)?fd(s2lf,1):7'd32;
+				22:ch=(s2_hcnt>2)?fd(get_hfreq(2,1),2):(s2_hcnt==2)?fd(s2lf,2):7'd32;
+				24:ch=(s2_hcnt>3)?fd(get_hfreq(3,1),0):(s2_hcnt==3)?fd(s2lf,0):7'd32;
+				25:ch=(s2_hcnt>3)?fd(get_hfreq(3,1),1):(s2_hcnt==3)?fd(s2lf,1):7'd32;
+				26:ch=(s2_hcnt>3)?fd(get_hfreq(3,1),2):(s2_hcnt==3)?fd(s2lf,2):7'd32;
+				28:ch=(s2_hcnt>4)?fd(get_hfreq(4,1),0):(s2_hcnt==4)?fd(s2lf,0):7'd32;
+				29:ch=(s2_hcnt>4)?fd(get_hfreq(4,1),1):(s2_hcnt==4)?fd(s2lf,1):7'd32;
+				30:ch=(s2_hcnt>4)?fd(get_hfreq(4,1),2):(s2_hcnt==4)?fd(s2lf,2):7'd32;
+				32:ch=(s2_hcnt>5)?fd(get_hfreq(5,1),0):(s2_hcnt==5)?fd(s2lf,0):7'd32;
+				33:ch=(s2_hcnt>5)?fd(get_hfreq(5,1),1):(s2_hcnt==5)?fd(s2lf,1):7'd32;
+				34:ch=(s2_hcnt>5)?fd(get_hfreq(5,1),2):(s2_hcnt==5)?fd(s2lf,2):7'd32;
 				36:ch=7'd32;
 				41:ch="F";42:ch="a";43:ch="i";44:ch="l";
 				default:ch=7'd32;
@@ -591,36 +612,37 @@ always @(*) begin
 			end end
 
 		// Row 9: Slot 2 history pass row (4-digit right-justified per column)
+		// Hidden during slot 2's search phase. Live pass count blinks at col == hist_count[1].
 		9: begin
-			if(tm==2'd1 || s2_hcnt==0) begin ch=7'd32; co=W; end
+			if(tm==2'd1 || s2_search) begin ch=7'd32; co=W; end
 			else begin
 				co=(cx<36)?G:R;
 				case(cx)
 				0:ch="P";1:ch="a";2:ch="s";3:ch="s";4:ch="e";5:ch="d";6:ch=":";
-				11:ch=(s2_hcnt>0)?bd4r(get_hpass(0,1),2'd0):7'd32;
-				12:ch=(s2_hcnt>0)?bd4r(get_hpass(0,1),2'd1):7'd32;
-				13:ch=(s2_hcnt>0)?bd4r(get_hpass(0,1),2'd2):7'd32;
-				14:ch=(s2_hcnt>0)?bd4r(get_hpass(0,1),2'd3):7'd32;
-				15:ch=(s2_hcnt>1)?bd4r(get_hpass(1,1),2'd0):7'd32;
-				16:ch=(s2_hcnt>1)?bd4r(get_hpass(1,1),2'd1):7'd32;
-				17:ch=(s2_hcnt>1)?bd4r(get_hpass(1,1),2'd2):7'd32;
-				18:ch=(s2_hcnt>1)?bd4r(get_hpass(1,1),2'd3):7'd32;
-				19:ch=(s2_hcnt>2)?bd4r(get_hpass(2,1),2'd0):7'd32;
-				20:ch=(s2_hcnt>2)?bd4r(get_hpass(2,1),2'd1):7'd32;
-				21:ch=(s2_hcnt>2)?bd4r(get_hpass(2,1),2'd2):7'd32;
-				22:ch=(s2_hcnt>2)?bd4r(get_hpass(2,1),2'd3):7'd32;
-				23:ch=(s2_hcnt>3)?bd4r(get_hpass(3,1),2'd0):7'd32;
-				24:ch=(s2_hcnt>3)?bd4r(get_hpass(3,1),2'd1):7'd32;
-				25:ch=(s2_hcnt>3)?bd4r(get_hpass(3,1),2'd2):7'd32;
-				26:ch=(s2_hcnt>3)?bd4r(get_hpass(3,1),2'd3):7'd32;
-				27:ch=(s2_hcnt>4)?bd4r(get_hpass(4,1),2'd0):7'd32;
-				28:ch=(s2_hcnt>4)?bd4r(get_hpass(4,1),2'd1):7'd32;
-				29:ch=(s2_hcnt>4)?bd4r(get_hpass(4,1),2'd2):7'd32;
-				30:ch=(s2_hcnt>4)?bd4r(get_hpass(4,1),2'd3):7'd32;
-				31:ch=(s2_hcnt>5)?bd4r(get_hpass(5,1),2'd0):7'd32;
-				32:ch=(s2_hcnt>5)?bd4r(get_hpass(5,1),2'd1):7'd32;
-				33:ch=(s2_hcnt>5)?bd4r(get_hpass(5,1),2'd2):7'd32;
-				34:ch=(s2_hcnt>5)?bd4r(get_hpass(5,1),2'd3):7'd32;
+				11:ch=(s2_hcnt>0)?bd4r(get_hpass(0,1),2'd0):(s2_hcnt==0&&(act==0||blink))?bd4r(s2b[19:0],2'd0):7'd32;
+				12:ch=(s2_hcnt>0)?bd4r(get_hpass(0,1),2'd1):(s2_hcnt==0&&(act==0||blink))?bd4r(s2b[19:0],2'd1):7'd32;
+				13:ch=(s2_hcnt>0)?bd4r(get_hpass(0,1),2'd2):(s2_hcnt==0&&(act==0||blink))?bd4r(s2b[19:0],2'd2):7'd32;
+				14:ch=(s2_hcnt>0)?bd4r(get_hpass(0,1),2'd3):(s2_hcnt==0&&(act==0||blink))?bd4r(s2b[19:0],2'd3):7'd32;
+				15:ch=(s2_hcnt>1)?bd4r(get_hpass(1,1),2'd0):(s2_hcnt==1&&(act==0||blink))?bd4r(s2b[19:0],2'd0):7'd32;
+				16:ch=(s2_hcnt>1)?bd4r(get_hpass(1,1),2'd1):(s2_hcnt==1&&(act==0||blink))?bd4r(s2b[19:0],2'd1):7'd32;
+				17:ch=(s2_hcnt>1)?bd4r(get_hpass(1,1),2'd2):(s2_hcnt==1&&(act==0||blink))?bd4r(s2b[19:0],2'd2):7'd32;
+				18:ch=(s2_hcnt>1)?bd4r(get_hpass(1,1),2'd3):(s2_hcnt==1&&(act==0||blink))?bd4r(s2b[19:0],2'd3):7'd32;
+				19:ch=(s2_hcnt>2)?bd4r(get_hpass(2,1),2'd0):(s2_hcnt==2&&(act==0||blink))?bd4r(s2b[19:0],2'd0):7'd32;
+				20:ch=(s2_hcnt>2)?bd4r(get_hpass(2,1),2'd1):(s2_hcnt==2&&(act==0||blink))?bd4r(s2b[19:0],2'd1):7'd32;
+				21:ch=(s2_hcnt>2)?bd4r(get_hpass(2,1),2'd2):(s2_hcnt==2&&(act==0||blink))?bd4r(s2b[19:0],2'd2):7'd32;
+				22:ch=(s2_hcnt>2)?bd4r(get_hpass(2,1),2'd3):(s2_hcnt==2&&(act==0||blink))?bd4r(s2b[19:0],2'd3):7'd32;
+				23:ch=(s2_hcnt>3)?bd4r(get_hpass(3,1),2'd0):(s2_hcnt==3&&(act==0||blink))?bd4r(s2b[19:0],2'd0):7'd32;
+				24:ch=(s2_hcnt>3)?bd4r(get_hpass(3,1),2'd1):(s2_hcnt==3&&(act==0||blink))?bd4r(s2b[19:0],2'd1):7'd32;
+				25:ch=(s2_hcnt>3)?bd4r(get_hpass(3,1),2'd2):(s2_hcnt==3&&(act==0||blink))?bd4r(s2b[19:0],2'd2):7'd32;
+				26:ch=(s2_hcnt>3)?bd4r(get_hpass(3,1),2'd3):(s2_hcnt==3&&(act==0||blink))?bd4r(s2b[19:0],2'd3):7'd32;
+				27:ch=(s2_hcnt>4)?bd4r(get_hpass(4,1),2'd0):(s2_hcnt==4&&(act==0||blink))?bd4r(s2b[19:0],2'd0):7'd32;
+				28:ch=(s2_hcnt>4)?bd4r(get_hpass(4,1),2'd1):(s2_hcnt==4&&(act==0||blink))?bd4r(s2b[19:0],2'd1):7'd32;
+				29:ch=(s2_hcnt>4)?bd4r(get_hpass(4,1),2'd2):(s2_hcnt==4&&(act==0||blink))?bd4r(s2b[19:0],2'd2):7'd32;
+				30:ch=(s2_hcnt>4)?bd4r(get_hpass(4,1),2'd3):(s2_hcnt==4&&(act==0||blink))?bd4r(s2b[19:0],2'd3):7'd32;
+				31:ch=(s2_hcnt>5)?bd4r(get_hpass(5,1),2'd0):(s2_hcnt==5&&(act==0||blink))?bd4r(s2b[19:0],2'd0):7'd32;
+				32:ch=(s2_hcnt>5)?bd4r(get_hpass(5,1),2'd1):(s2_hcnt==5&&(act==0||blink))?bd4r(s2b[19:0],2'd1):7'd32;
+				33:ch=(s2_hcnt>5)?bd4r(get_hpass(5,1),2'd2):(s2_hcnt==5&&(act==0||blink))?bd4r(s2b[19:0],2'd2):7'd32;
+				34:ch=(s2_hcnt>5)?bd4r(get_hpass(5,1),2'd3):(s2_hcnt==5&&(act==0||blink))?bd4r(s2b[19:0],2'd3):7'd32;
 				42:ch=bd3r(s2tf,2'd0);43:ch=bd3r(s2tf,2'd1);44:ch=bd3r(s2tf,2'd2);
 				default:ch=7'd32;
 				endcase
